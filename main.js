@@ -1,0 +1,1 @@
+window.NCUTMap.app.initCampusMap();

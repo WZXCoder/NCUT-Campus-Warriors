@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="screen-orientation" content="landscape">
+    <title>NCUT校园勇士</title>
+    <link rel="stylesheet" href="style.css?v=20260619">
+</head>
+<body>
+    <div id="auth-container" class="auth-container">
+        <div class="auth-box">
+            <div class="auth-header">
+                <h1>NCUT校园勇士</h1>
+                <p>登录后进入游戏大厅</p>
+            </div>
+            
+            <div class="auth-tabs">
+                <button id="login-tab" class="auth-tab active">登录</button>
+                <button id="register-tab" class="auth-tab">注册</button>
+            </div>
+
+            <form id="login-form" class="auth-form">
+                <div class="form-group">
+                    <label for="login-username">用户名</label>
+                    <input type="text" id="login-username" placeholder="请输入用户名" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">密码</label>
+                    <input type="password" id="login-password" placeholder="请输入密码" required>
+                </div>
+                <button type="submit" class="auth-btn">登录</button>
+                <p class="form-error" id="login-error"></p>
+            </form>
+
+            <form id="register-form" class="auth-form hidden">
+                <div class="form-group">
+                    <label for="register-username">用户名</label>
+                    <input type="text" id="register-username" placeholder="请输入用户名" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-password">密码</label>
+                    <input type="password" id="register-password" placeholder="请输入密码（至少6位）" required>
+                </div>
+                <button type="submit" class="auth-btn">注册</button>
+                <p class="form-error" id="register-error"></p>
+            </form>
+        </div>
+    </div>
+
+    <section id="lobby-view" class="lobby-view hidden">
+        <aside class="lobby-sidebar">
+            <div class="panel-title">玩家信息</div>
+            <div class="profile-card">
+                <button id="current-role-btn" class="role-preview" title="点击切换角色">
+                    <img id="current-role-img" alt="当前角色">
+                    <span>点击切换角色</span>
+                </button>
+                <div>
+                    <div class="profile-label">昵称</div>
+                    <div id="lobby-nickname" class="profile-name">--</div>
+                    <div class="profile-label">当前角色</div>
+                    <div id="lobby-role-name" class="profile-role">默认角色</div>
+                </div>
+            </div>
+            <div class="profile-bio-section">
+                <div class="profile-label">简介</div>
+                <div id="lobby-bio" class="profile-bio">暂无简介，点击编辑介绍自己。</div>
+                <button type="button" id="edit-bio-btn" class="ui-btn">编辑简介</button>
+            </div>
+            <button id="lobby-logout-btn" class="menu-btn danger">退出登录</button>
+        </aside>
+
+        <main class="lobby-main">
+            <div class="coin-banner">
+                <span>当前 NCUT 币</span>
+                <strong id="coin-count">0</strong>
+            </div>
+            <h2>NCUT校园勇士</h2>
+            <p class="lobby-desc">选择参观校园，或进入摸金、生存模式开始冒险。</p>
+            <div class="lobby-actions-board">
+                <div class="lobby-game-actions">
+                    <div class="lobby-section-label">游戏模式</div>
+                    <button id="visit-mode-btn" class="big-btn accent">参观校园</button>
+                    <button id="goldrush-mode-btn" class="big-btn accent">摸金模式</button>
+                    <button id="survival-mode-btn" class="big-btn accent">生存模式</button>
+                    <button id="gameplay-guide-btn" class="big-btn guide">玩法说明</button>
+                </div>
+                <div class="lobby-meta-actions">
+                    <div class="lobby-section-label">个人中心</div>
+                    <button id="shop-btn" class="big-btn">商城</button>
+                    <button id="bag-btn" class="big-btn">背包</button>
+                    <button id="collection-btn" class="big-btn">收藏品</button>
+                    <button id="friends-btn" class="big-btn">好友聊天</button>
+                    <button id="daily-task-btn" class="big-btn">每日任务</button>
+                    <button id="achievement-btn" class="big-btn">成就</button>
+                    <button id="ranking-btn" class="big-btn">排行榜</button>
+                </div>
+            </div>
+            <div id="supabase-status" class="status-note"></div>
+        </main>
+    </section>
+
+    <canvas id="mapCanvas" class="hidden"></canvas>
+
+    <div id="minimap" class="minimap hidden" aria-label="校园小地图" title="点击展开地图">
+        <canvas id="minimapCanvas"></canvas>
+        <div class="minimap-label">
+            <span>小地图</span>
+            <strong id="minimap-coords">--, --</strong>
+        </div>
+        <div class="minimap-tip">点击展开</div>
+    </div>
+
+    <div id="tooltip">
+        <div class="tt-name"></div>
+        <div class="tt-coords"></div>
+    </div>
+
+    <div id="user-panel" class="user-panel hidden">
+        <div class="user-info">
+            <div class="avatar" id="user-avatar"></div>
+            <span id="user-name"></span>
+        </div>
+        <button id="logout-btn" class="logout-btn">退出登录</button>
+    </div>
+
+    <div id="game-hud" class="game-hud hidden">
+        <div id="hud-online-list" class="hud-online-list hidden"></div>
+        <div class="hud-card">
+            <strong id="hud-mode">参观模式</strong>
+            <span id="hud-health">生命：100</span>
+            <span id="hud-online">在线：1</span>
+            <span id="hud-bag">本局背包：0</span>
+            <span id="hud-extract"></span>
+        </div>
+        <div class="hud-actions">
+            <button id="attack-btn" class="ui-btn accent">攻击</button>
+            <button id="exit-game-btn" class="ui-btn">返回大厅</button>
+        </div>
+    </div>
+
+    <div id="mobile-controls" class="mobile-controls hidden">
+        <div id="rotate-hint" class="rotate-hint hidden">
+            <div class="rotate-hint-icon">↻</div>
+            <p>请旋转设备至横屏以获得最佳体验</p>
+        </div>
+        <div id="mobile-joystick" class="mobile-joystick" aria-label="移动摇杆">
+            <div class="joystick-base"></div>
+            <div class="joystick-thumb"></div>
+        </div>
+        <div id="mobile-actions" class="mobile-actions hidden">
+            <button type="button" id="mobile-btn-extract" class="mobile-btn mobile-btn-extract hidden" aria-label="撤离">撤</button>
+            <button type="button" id="mobile-btn-skill" class="mobile-btn mobile-btn-skill" aria-label="技能">技</button>
+            <button type="button" id="mobile-btn-pickup" class="mobile-btn mobile-btn-pickup" aria-label="拾取">拾</button>
+            <button type="button" id="mobile-btn-attack" class="mobile-btn mobile-btn-attack" aria-label="攻击">攻</button>
+        </div>
+    </div>
+
+    <div id="modal-root" class="modal-root hidden"></div>
+    <div id="toast" class="toast hidden"></div>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="js/constants.js"></script>
+    <script defer src="js/assets.js?v=20260618"></script>
+    <script defer src="js/skills.js?v=20260616"></script>
+    <script defer src="js/supabase-client.js"></script>
+    <script defer src="js/store.js?v=20260616"></script>
+    <script defer src="js/social.js?v=20260528"></script>
+    <script defer src="js/realtime.js?v=20260618"></script>
+    <script defer src="js/ui.js?v=20260617"></script>
+    <script defer src="js/data.js"></script>
+    <script defer src="js/utils.js"></script>
+    <script defer src="js/texture.js"></script>
+    <script defer src="js/camera.js?v=20260605"></script>
+    <script defer src="js/auth.js?v=20260618"></script>
+    <script defer src="js/player.js"></script>
+    <script defer src="js/renderer.js?v=20260618"></script>
+    <script defer src="js/minimap.js"></script>
+    <script defer src="js/controls.js"></script>
+    <script defer src="js/touch-controls.js?v=20260613"></script>
+    <script defer src="js/goldrush.js?v=20260618"></script>
+    <script defer src="js/survival.js?v=20260618"></script>
+    <script defer src="js/weather.js"></script>
+    <script defer src="js/app.js?v=20260619"></script>
+    <script defer src="main.js"></script>
+</body>
+</html>
