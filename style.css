@@ -1247,37 +1247,6 @@ canvas {
     line-height: 1.5;
 }
 
-.landscape-enter-btn {
-    margin-top: 8px;
-    padding: 14px 28px;
-    border: none;
-    border-radius: 999px;
-    background: linear-gradient(180deg, #ffd080, #c58a1a);
-    color: #2a1808;
-    font-family: inherit;
-    font-size: 16px;
-    font-weight: 800;
-    cursor: pointer;
-    touch-action: manipulation;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.landscape-hint-sub {
-    max-width: 280px;
-    font-size: 13px;
-    line-height: 1.5;
-    color: #cbbda8;
-}
-
-body.mobile-orientation-pending .auth-container,
-body.mobile-orientation-pending .lobby-view,
-body.mobile-orientation-pending #mapCanvas,
-body.mobile-orientation-pending .game-hud,
-body.mobile-orientation-pending .mobile-controls,
-body.mobile-orientation-pending .modal-root {
-    pointer-events: none;
-}
-
 @keyframes rotate-hint-spin {
     0%, 100% { transform: rotate(0deg); }
     45% { transform: rotate(90deg); }
@@ -1397,10 +1366,6 @@ body.mobile-orientation-pending .modal-root {
 
 body.mobile-game-active .hud-actions #attack-btn {
     display: none;
-}
-
-body.mobile-device.mobile-game-active {
-    overflow: hidden;
 }
 
 body.mobile-game-active .game-hud {
@@ -1728,60 +1693,6 @@ body.mobile-game-active .minimap {
 
 .modal-panel.survival-prep-modal {
     width: min(920px, 96vw);
-}
-
-/* 手机横屏：大厅与弹窗可滚动，避免按钮被裁切 */
-@media (orientation: landscape) and (max-height: 520px) {
-    body.mobile-device {
-        overflow: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .auth-container {
-        overflow-y: auto;
-        align-items: flex-start;
-        padding-top: max(16px, env(safe-area-inset-top));
-        padding-bottom: max(16px, env(safe-area-inset-bottom));
-    }
-
-    .lobby-view {
-        position: relative;
-        inset: auto;
-        min-height: 100dvh;
-        height: auto;
-        overflow: visible;
-        align-content: start;
-    }
-
-    .lobby-sidebar,
-    .lobby-main {
-        height: auto;
-        min-height: 0;
-        overflow: visible;
-    }
-
-    .lobby-sidebar > .menu-btn.danger {
-        margin-top: 12px;
-        margin-bottom: 8px;
-    }
-
-    .modal-root {
-        align-items: flex-start;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
-    }
-
-    .modal-panel {
-        max-height: none;
-        width: min(920px, calc(100vw - 24px));
-        margin: 0 auto 16px;
-    }
-
-    .modal-panel.survival-prep-modal,
-    .modal-panel.gameplay-guide-modal {
-        max-height: none;
-    }
 }
 
 .skill-prep-section {

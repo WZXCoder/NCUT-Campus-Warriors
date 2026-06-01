@@ -11,76 +11,44 @@
 
     function createOrientationManager(options = {}) {
         const { hintEl } = options;
-        const enterBtn = document.getElementById('landscape-enter-btn');
-        const hintText = document.getElementById('landscape-hint-text');
         const state = {
             isMobile: isCoarsePointer(),
-            lockSucceeded: false,
         };
 
-        function notifyResize() {
-            window.dispatchEvent(new Event('resize'));
-        }
-
-        function isLandscapeReady() {
-            return !isPortrait() || state.lockSucceeded;
-        }
-
         function updateHint() {
-            if (!state.isMobile) return;
-
-            const ready = isLandscapeReady();
-            if (hintEl) {
-                hintEl.classList.toggle('hidden', ready);
-            }
-            document.documentElement.classList.toggle('mobile-portrait', !ready);
-            document.documentElement.classList.toggle('mobile-landscape', ready);
-            document.body.classList.toggle('mobile-orientation-pending', !ready);
-        }
-
-        async function requestFullscreenIfNeeded() {
-            if (!document.fullscreenEnabled || document.fullscreenElement) return;
-            try {
-                await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-            } catch (_) {
-                // 部分浏览器不支持或用户拒绝
-            }
+            if (!hintEl || !state.isMobile) return;
+            const portrait = isPortrait();
+            hintEl.classList.toggle('hidden', !portrait);
+            document.documentElement.classList.toggle('mobile-portrait', portrait);
+            document.documentElement.classList.toggle('mobile-landscape', !portrait);
         }
 
         async function tryLockLandscape() {
             if (!state.isMobile) return false;
-
-            if (!isPortrait()) {
-                state.lockSucceeded = true;
-                updateHint();
-                notifyResize();
-                return true;
-            }
-
-            await requestFullscreenIfNeeded();
-
             const orientation = screen.orientation;
-            if (orientation?.lock) {
-                const candidates = ['landscape-primary', 'landscape', 'landscape-secondary'];
-                for (const mode of candidates) {
-                    try {
-                        await orientation.lock(mode);
-                        state.lockSucceeded = true;
-                        updateHint();
-                        notifyResize();
-                        return true;
-                    } catch (_) {
-                        // 需用户手势或浏览器不支持，继续尝试
-                    }
+            if (!orientation?.lock) return false;
+
+            const candidates = ['landscape-primary', 'landscape', 'landscape-secondary'];
+            for (const mode of candidates) {
+                try {
+                    await orientation.lock(mode);
+                    updateHint();
+                    return orientation.type?.includes('landscape') ?? true;
+                } catch (_) {
+                    // 部分浏览器需用户手势或全屏，继续尝试下一种
                 }
             }
-
-            if (hintText) {
-                hintText.textContent = '无法自动横屏，请手动旋转设备后继续';
-            }
-            updateHint();
-            notifyResize();
             return false;
+        }
+
+        function bindGestureLock() {
+            if (!state.isMobile) return;
+            const retry = () => {
+                tryLockLandscape();
+            };
+            ['touchstart', 'pointerdown', 'click'].forEach(eventName => {
+                document.addEventListener(eventName, retry, { passive: true });
+            });
         }
 
         function init() {
@@ -88,27 +56,15 @@
 
             document.documentElement.classList.add('mobile-device');
             updateHint();
-
-            enterBtn?.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                tryLockLandscape();
-            });
+            tryLockLandscape();
+            bindGestureLock();
 
             window.addEventListener('resize', updateHint);
             window.addEventListener('orientationchange', () => {
                 setTimeout(() => {
-                    if (!isPortrait()) {
-                        state.lockSucceeded = true;
-                    }
+                    tryLockLandscape();
                     updateHint();
-                    notifyResize();
                 }, 150);
-            });
-            document.addEventListener('visibilitychange', () => {
-                if (!document.hidden) {
-                    setTimeout(updateHint, 80);
-                }
             });
         }
 
