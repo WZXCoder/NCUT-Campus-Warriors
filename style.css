@@ -1215,7 +1215,7 @@ canvas {
     pointer-events: auto;
 }
 
-/* Android 浏览器无法系统横屏时，CSS 模拟横屏布局 */
+/* 移动端无法系统横屏时，CSS 模拟横屏布局 */
 html.mobile-device.use-css-landscape {
     position: fixed;
     top: 0;
