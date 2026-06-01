@@ -45,21 +45,24 @@
             gameLandscapeEnabled: false,
         };
 
-        function isCssLandscapeForced() {
-            return state.isMobile
-                && window.matchMedia('(max-width: 720px) and (orientation: portrait)').matches;
-        }
-
         function notifyLayoutChange() {
             window.dispatchEvent(new Event('resize'));
         }
 
-        let lastCssForced = false;
-
         function syncCssLandscape() {
-            const cssForced = isCssLandscapeForced();
-            if (lastCssForced !== cssForced) {
-                lastCssForced = cssForced;
+            const stage = getGameStage();
+            if (!stage) return;
+
+            const portrait = isPortrait();
+            const nativeLandscape = isNativeLandscape();
+            const shouldForce = state.isMobile
+                && state.gameLandscapeEnabled
+                && portrait
+                && !nativeLandscape;
+
+            const hadForce = stage.classList.contains('css-landscape');
+            stage.classList.toggle('css-landscape', shouldForce);
+            if (hadForce !== shouldForce) {
                 notifyLayoutChange();
             }
         }
@@ -69,15 +72,14 @@
 
             const portrait = isPortrait();
             syncCssLandscape();
-            const cssForced = isCssLandscapeForced();
-            const showHint = state.gameLandscapeEnabled && portrait && !cssForced && !isNativeLandscape();
+            const cssForced = getGameStage()?.classList.contains('css-landscape');
+            const showHint = state.gameLandscapeEnabled && portrait && !cssForced;
 
             if (hintEl) {
                 hintEl.classList.toggle('hidden', !showHint);
             }
             document.documentElement.classList.toggle('mobile-portrait', portrait);
             document.documentElement.classList.toggle('mobile-landscape', !portrait);
-            document.documentElement.classList.toggle('css-landscape-active', cssForced);
         }
 
         function setGameLandscapeEnabled(enabled) {
@@ -86,6 +88,7 @@
             if (stage) {
                 stage.setAttribute('aria-hidden', enabled ? 'false' : 'true');
             }
+            syncCssLandscape();
             updateHint();
             if (enabled) {
                 tryLockLandscape();
@@ -110,7 +113,13 @@
         }
 
         function clearCssLandscapeIfNative() {
-            return isNativeLandscape() || !isPortrait();
+            const stage = getGameStage();
+            if (!stage) return false;
+            if (isNativeLandscape() || !isPortrait()) {
+                stage.classList.remove('css-landscape');
+                return true;
+            }
+            return false;
         }
 
         function lockWithLegacyApi() {
@@ -187,9 +196,8 @@
             if (!state.isMobile) return;
 
             document.documentElement.classList.add('mobile-device');
-            lastCssForced = isCssLandscapeForced();
+            syncCssLandscape();
             updateHint();
-            if (lastCssForced) notifyLayoutChange();
             tryLockLandscape();
             bindGestureLock();
 
@@ -198,8 +206,6 @@
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', updateHint);
             }
-            window.matchMedia('(max-width: 720px) and (orientation: portrait)')
-                .addEventListener('change', updateHint);
         }
 
         return {

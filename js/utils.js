@@ -45,8 +45,7 @@
     }
 
     function usesCssLandscape() {
-        if (!document.documentElement.classList.contains('mobile-device')) return false;
-        return window.matchMedia('(max-width: 720px) and (orientation: portrait)').matches;
+        return document.getElementById('game-stage')?.classList.contains('css-landscape') ?? false;
     }
 
     function getViewportWidth() {
