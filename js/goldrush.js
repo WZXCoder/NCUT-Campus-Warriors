@@ -1,5 +1,6 @@
 (function(global) {
-    const { assets } = global.NCUTMap;
+    const { assets, audio } = global.NCUTMap;
+    const { getWorldViewport, isWorldPointInViewport } = global.NCUTMap.utils;
 
     function distance(a, b) {
         return Math.hypot(a.x - b.x, a.y - b.y);
@@ -13,14 +14,14 @@
         return Math.floor(randomBetween(min, max + 1));
     }
 
-    const PLAYER_BASE_SPEED = 0.01;
+    const { MOVEMENT } = global.NCUTMap;
 
     function getPlayerBaseMoveStep() {
-        return PLAYER_BASE_SPEED * 30;
+        return MOVEMENT.PLAYER_BASE_SPEED * MOVEMENT.MOVE_TICK_SCALE;
     }
 
     function randomEntityMoveStep() {
-        return randomBetween(0.9, 1.1) * getPlayerBaseMoveStep();
+        return randomBetween(MOVEMENT.NPC_SPEED_RATIO_MIN, MOVEMENT.NPC_SPEED_RATIO_MAX) * getPlayerBaseMoveStep();
     }
 
     function pickWeightedGem() {
@@ -742,6 +743,7 @@
                 ? source
                 : [...state.npcs, ...state.remotePlayers].find(entity => entity.name === source);
             const finalAmount = skillCtrl ? skillCtrl.handleIncomingDamage(amount, sourceEntity) : amount;
+            audio?.playNpcAttack?.();
             state.health = Math.max(0, state.health - finalAmount);
             addEffect({
                 type: 'damage',
@@ -765,7 +767,7 @@
             state.effects.push(effect);
         }
 
-        function moveToward(entity, target, speed, stopDistance = 0) {
+        function moveToward(entity, target, speed, stopDistance = 0, deltaTime = 1 / 60) {
             const dx = target.x - entity.x;
             const dy = target.y - entity.y;
             const d = Math.hypot(dx, dy) || 1;
@@ -774,7 +776,8 @@
                 entity.y = target.y - (dy / d) * stopDistance;
                 return;
             }
-            const step = Math.min(speed, Math.max(0, d - stopDistance));
+            const frameScale = deltaTime * 60;
+            const step = Math.min(speed, Math.max(0, d - stopDistance)) * frameScale;
             entity.x += (dx / d) * step;
             entity.y += (dy / d) * step;
         }
@@ -795,7 +798,7 @@
             return nearest;
         }
 
-        function updateSharedCombatEntity(entity, playerPoint, now) {
+        function updateSharedCombatEntity(entity, playerPoint, now, deltaTime = 1 / 60) {
             if (entity.stunnedUntil && now < entity.stunnedUntil) return;
             if (entity.isAlly) return;
 
@@ -804,7 +807,7 @@
             if (entity.provokeUntil && now < entity.provokeUntil && entity.provokeTargetId) {
                 const rival = getCombatTargets().find(target => target.id === entity.provokeTargetId);
                 if (rival) {
-                    moveToward(entity, rival, entity.speed, 5);
+                    moveToward(entity, rival, entity.speed, 5, deltaTime);
                     if (distance(entity, rival) <= entity.attackRange && now - entity.lastAttackAt > entity.attackInterval) {
                         entity.lastAttackAt = now;
                         rival.hp -= entity.attack;
@@ -816,7 +819,7 @@
 
             if (!(entity.rootedUntil && now < entity.rootedUntil) && (skillCtrl?.getActiveClone?.() || !skillCtrl?.isPlayerInvisible?.())) {
                 const moveSpeed = skillCtrl ? skillCtrl.getMonsterMoveSpeed(entity, playerPoint) : entity.speed;
-                moveToward(entity, chasePoint, moveSpeed, 5);
+                moveToward(entity, chasePoint, moveSpeed, 5, deltaTime);
             }
 
             const attackInterval = skillCtrl ? skillCtrl.getMonsterAttackInterval(entity, playerPoint) : entity.attackInterval;
@@ -833,6 +836,7 @@
                         duration: 260,
                     });
                     skillCtrl.damageClone(entity.attack, entity.name);
+                    audio?.playNpcAttack?.();
                 }
                 return;
             }
@@ -874,9 +878,9 @@
             }
         }
 
-        function updateCombatEntity(entity, playerPoint, now) {
+        function updateCombatEntity(entity, playerPoint, now, deltaTime = 1 / 60) {
             if (state.useSharedNpcs && state.isRoomHost) {
-                updateSharedCombatEntity(entity, playerPoint, now);
+                updateSharedCombatEntity(entity, playerPoint, now, deltaTime);
                 return;
             }
             if (state.useSharedNpcs) return;
@@ -889,7 +893,7 @@
             if (entity.provokeUntil && now < entity.provokeUntil && entity.provokeTargetId) {
                 const rival = getCombatTargets().find(target => target.id === entity.provokeTargetId);
                 if (rival) {
-                    moveToward(entity, rival, entity.speed, 5);
+                    moveToward(entity, rival, entity.speed, 5, deltaTime);
                     if (distance(entity, rival) <= entity.attackRange && now - entity.lastAttackAt > entity.attackInterval) {
                         entity.lastAttackAt = now;
                         rival.hp -= entity.attack;
@@ -901,7 +905,7 @@
 
             if (!(entity.rootedUntil && now < entity.rootedUntil) && (clone || !skillCtrl?.isPlayerInvisible?.())) {
                 const moveSpeed = skillCtrl ? skillCtrl.getMonsterMoveSpeed(entity, playerPoint) : entity.speed;
-                moveToward(entity, chasePoint, moveSpeed, 5);
+                moveToward(entity, chasePoint, moveSpeed, 5, deltaTime);
             }
 
             const attackInterval = skillCtrl ? skillCtrl.getMonsterAttackInterval(entity, playerPoint) : entity.attackInterval;
@@ -917,6 +921,7 @@
                         duration: 260,
                     });
                     skillCtrl.damageClone(entity.attack, entity.name);
+                    audio?.playNpcAttack?.();
                 }
                 return;
             }
@@ -951,7 +956,7 @@
             state.lastPlayerPos = { x: player.state.x, y: player.state.y };
         }
 
-        function update() {
+        function update(deltaTime = 1 / 60) {
             if (!state.active) return;
             const now = performance.now();
             if (!state.collectible) {
@@ -967,9 +972,9 @@
             const playerPoint = { x: player.state.x, y: player.state.y };
             updateSpeedDurability();
             syncSkillSpeedBonus();
-            skillCtrl?.updateTimedEffects?.(now);
+            skillCtrl?.updateTimedEffects?.(now, deltaTime);
 
-            state.npcs.forEach(npc => updateCombatEntity(npc, playerPoint, now));
+            state.npcs.forEach(npc => updateCombatEntity(npc, playerPoint, now, deltaTime));
             interpolateSharedNpcs(now);
             state.lastFrameAt = now;
 
@@ -1255,6 +1260,7 @@
             state.lastPlayerAttackAt = now;
             skillCtrl?.onPlayerAttackPerformed?.();
             skillCtrl?.consumeMultiTargetHit?.();
+            audio?.playPlayerAttack?.();
 
             sorted.forEach((target, index) => {
                 const source = target.kind === 'player'
@@ -1347,9 +1353,10 @@
             ctx.restore();
         }
 
-        function drawDroppedItem(ctx, cameraRef, drop) {
+        function drawDroppedItem(ctx, cameraRef, drop, viewport) {
             const item = assets.getItemById(drop.itemId);
             if (!item) return;
+            if (viewport && !isWorldPointInViewport(drop.x, drop.y, viewport, 32)) return;
             if (item.type === 'gem') {
                 drawGem(ctx, cameraRef, drop);
                 return;
@@ -1364,10 +1371,11 @@
             ctx.restore();
         }
 
-        function drawCollectible(ctx, cameraRef) {
+        function drawCollectible(ctx, cameraRef, viewport) {
             if (!state.collectible) return;
             const item = assets.getItemById(state.collectible.itemId);
             if (!item) return;
+            if (viewport && !isWorldPointInViewport(state.collectible.x, state.collectible.y, viewport, 40)) return;
             const point = cameraRef.worldToScreen(state.collectible.x, state.collectible.y);
             const size = Math.max(16, 15 * cameraRef.state.zoom);
             ctx.save();
@@ -1412,7 +1420,8 @@
             ctx.restore();
         }
 
-        function drawCharacter(ctx, cameraRef, entity, color) {
+        function drawCharacter(ctx, cameraRef, entity, color, viewport) {
+            if (viewport && !isWorldPointInViewport(entity.x, entity.y, viewport, player.state.size)) return;
             const point = cameraRef.worldToScreen(entity.x, entity.y);
             const size = Math.max(12, player.state.size * cameraRef.state.zoom);
             ctx.save();
@@ -1491,19 +1500,34 @@
 
         function render(ctx, cameraRef = camera) {
             if (!state.active) return;
-            state.treasures.forEach(item => drawGem(ctx, cameraRef, item));
-            drawCollectible(ctx, cameraRef);
-            state.droppedItems.forEach(item => drawDroppedItem(ctx, cameraRef, item));
+            const viewport = getWorldViewport(cameraRef, 100);
+            const entityRadius = Math.max(48, player.state.size * 1.5);
+
+            state.treasures.forEach(item => {
+                if (isWorldPointInViewport(item.x, item.y, viewport, 24)) drawGem(ctx, cameraRef, item);
+            });
+            drawCollectible(ctx, cameraRef, viewport);
+            state.droppedItems.forEach(item => drawDroppedItem(ctx, cameraRef, item, viewport));
             drawAttackRange(ctx, cameraRef);
-            state.npcs.forEach(npc => drawCharacter(ctx, cameraRef, npc, npc.isAlly ? '#22c55e' : '#64748b'));
-            state.remotePlayers.forEach(remote => drawCharacter(ctx, cameraRef, remote, remote.color || '#ef4444'));
-            if (skillCtrl?.getActiveClone?.()) {
-                skillCtrl.drawClone(ctx, cameraRef, skillCtrl.getActiveClone(), drawHealthBar);
+            state.npcs.forEach(npc => {
+                if (isWorldPointInViewport(npc.x, npc.y, viewport, entityRadius)) {
+                    drawCharacter(ctx, cameraRef, npc, npc.isAlly ? '#22c55e' : '#64748b');
+                }
+            });
+            state.remotePlayers.forEach(remote => {
+                if (isWorldPointInViewport(remote.x, remote.y, viewport, entityRadius)) {
+                    drawCharacter(ctx, cameraRef, remote, remote.color || '#ef4444');
+                }
+            });
+            const clone = skillCtrl?.getActiveClone?.();
+            if (clone && isWorldPointInViewport(clone.x, clone.y, viewport, entityRadius)) {
+                skillCtrl.drawClone(ctx, cameraRef, clone, drawHealthBar);
             }
             drawPlayerHealth(ctx, cameraRef);
             drawEffects(ctx, cameraRef);
 
             getGates().forEach(gate => {
+                if (!isWorldPointInViewport(gate.x, gate.y, viewport, 80)) return;
                 const point = cameraRef.worldToScreen(gate.x, gate.y);
                 ctx.save();
                 ctx.strokeStyle = '#ffd080';

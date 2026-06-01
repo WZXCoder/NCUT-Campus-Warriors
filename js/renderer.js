@@ -1,5 +1,5 @@
 (function(global) {
-    const { lightenColor, darkenColor } = global.NCUTMap.utils;
+    const { lightenColor, darkenColor, getCanvasDpr } = global.NCUTMap.utils;
     const { assets } = global.NCUTMap;
 
     function createRenderer(options) {
@@ -51,7 +51,7 @@
         }
 
         function resizeCanvas() {
-            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            const dpr = getCanvasDpr();
             canvas.width = window.innerWidth * dpr;
             canvas.height = window.innerHeight * dpr;
             canvas.style.width = window.innerWidth + 'px';

@@ -6,7 +6,11 @@
     const PRESENCE_STALE_MS = 8000;
     const GOLD_RUSH_BROADCAST_MS = 200;
     const GOLD_RUSH_DB_HEARTBEAT_MS = 3000;
+    const VISIT_BROADCAST_MS = 250;
+    const VISIT_DB_HEARTBEAT_MS = 10000;
+    const VISIT_BROADCAST_CHANNEL = 'visit-broadcast:global';
     const PRESENCE_REFRESH_DEBOUNCE_MS = 250;
+    const PRESENCE_STALE_SWEEP_MS = 3000;
 
     let dbChannel = null;
     let broadcastChannel = null;
@@ -21,6 +25,7 @@
     let lastError = null;
     let presenceBroadcastMode = false;
     let presenceRefreshTimer = null;
+    let presenceStaleTimer = null;
 
     function isEnabled() {
         return Boolean(supabase);
@@ -67,6 +72,33 @@
             clearTimeout(presenceRefreshTimer);
             presenceRefreshTimer = null;
         }
+        if (presenceStaleTimer) {
+            clearInterval(presenceStaleTimer);
+            presenceStaleTimer = null;
+        }
+    }
+
+    function sweepStalePresence() {
+        const cutoff = Date.now() - PRESENCE_STALE_MS;
+        let changed = false;
+        presenceState.forEach((entry, userId) => {
+            if ((entry.updatedAt || 0) < cutoff) {
+                presenceState.delete(userId);
+                changed = true;
+            }
+        });
+        if (changed) notifyPresenceChange();
+    }
+
+    function startPresenceStaleSweep() {
+        if (presenceStaleTimer) clearInterval(presenceStaleTimer);
+        presenceStaleTimer = setInterval(sweepStalePresence, PRESENCE_STALE_SWEEP_MS);
+    }
+
+    function getBroadcastChannelKey(mode, roomId) {
+        if (roomId) return `goldrush-broadcast:${roomId}`;
+        if (mode === 'visit') return VISIT_BROADCAST_CHANNEL;
+        return null;
     }
 
     function schedulePresenceRefresh(mode, roomId) {
@@ -192,7 +224,9 @@
         let lastDbHeartbeat = 0;
         let lastBroadcastKey = '';
         const viaBroadcast = Boolean(options.presenceViaBroadcast);
-        const trackInterval = viaBroadcast ? (options.trackInterval || GOLD_RUSH_BROADCAST_MS) : TRACK_INTERVAL_MS;
+        const trackInterval = viaBroadcast
+            ? (options.trackInterval || GOLD_RUSH_BROADCAST_MS)
+            : TRACK_INTERVAL_MS;
 
         trackTimer = setInterval(async () => {
             const payload = getTrackPayload?.();
@@ -216,14 +250,34 @@
                 if (now - lastDbHeartbeat >= (options.dbHeartbeatMs || GOLD_RUSH_DB_HEARTBEAT_MS)) {
                     lastDbHeartbeat = now;
                     await upsertMyPresence(mode, roomId, userId, payload);
+                    if (options.skipPolling) {
+                        broadcast('player_move', {
+                            nickname: payload.nickname,
+                            x: payload.x,
+                            y: payload.y,
+                            hp: payload.hp,
+                            max_hp: payload.max_hp,
+                            status: payload.status,
+                            skin_color: payload.skin_color,
+                            skin_item_id: payload.skin_item_id,
+                        });
+                    }
                 }
                 return;
             }
             await upsertMyPresence(mode, roomId, userId, payload);
         }, trackInterval);
 
-        const pollInterval = options.pollIntervalMs ?? (viaBroadcast ? 4000 : POLL_INTERVAL_MS);
-        startPolling(mode, roomId, pollInterval);
+        if (!options.skipPolling) {
+            const pollInterval = options.pollIntervalMs ?? (viaBroadcast ? 4000 : POLL_INTERVAL_MS);
+            if (pollInterval > 0) {
+                startPolling(mode, roomId, pollInterval);
+            }
+        }
+
+        if (viaBroadcast && options.skipPolling) {
+            startPresenceStaleSweep();
+        }
     }
 
     function subscribeDbChanges(mode, roomId) {
@@ -256,10 +310,10 @@
         });
     }
 
-    function subscribeBroadcast(roomId, handlers = {}) {
-        if (!supabase || !roomId) return Promise.resolve(false);
-        const channelName = `goldrush-broadcast:${roomId}`;
-        broadcastChannel = supabase.channel(channelName, {
+    function subscribeBroadcast(mode, roomId, handlers = {}) {
+        const channelKey = getBroadcastChannelKey(mode, roomId);
+        if (!supabase || !channelKey) return Promise.resolve(false);
+        broadcastChannel = supabase.channel(channelKey, {
             config: { broadcast: { ack: false, self: false } },
         });
         (handlers.events || []).forEach(({ event, callback }) => {
@@ -345,13 +399,17 @@
             await upsertMyPresence(mode, roomId, user.id, initialPayload);
         }
 
-        await subscribeDbChanges(mode, roomId);
+        if (!options.skipDbSubscribe) {
+            await subscribeDbChanges(mode, roomId);
+        }
         if (sessionHandlers.events?.length) {
-            await subscribeBroadcast(roomId, sessionHandlers);
+            await subscribeBroadcast(mode, roomId, sessionHandlers);
         }
 
         startTracking(mode, roomId, user.id, options);
-        await refreshPresenceFromDb(mode, roomId);
+        if (options.initialPresenceRefresh !== false) {
+            await refreshPresenceFromDb(mode, roomId);
+        }
         notifyPresenceChange();
 
         return { ok: true, mode, roomId, via: presenceBroadcastMode ? 'broadcast' : 'database' };
@@ -368,12 +426,22 @@
                     nickname: displayName,
                     x: pos.x,
                     y: pos.y,
+                    hp: 100,
+                    max_hp: 100,
                     skin_color: user.avatarColor || '#4A90D9',
                     skin_item_id: user.currentSkinItemId || null,
                     status: 'active',
                 };
             },
             handlers,
+            {
+                presenceViaBroadcast: true,
+                trackInterval: VISIT_BROADCAST_MS,
+                dbHeartbeatMs: VISIT_DB_HEARTBEAT_MS,
+                skipPolling: true,
+                skipDbSubscribe: true,
+                initialPresenceRefresh: true,
+            },
         );
     }
 

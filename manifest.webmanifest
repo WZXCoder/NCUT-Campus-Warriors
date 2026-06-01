@@ -1,0 +1,11 @@
+{
+    "name": "NCUT校园勇士",
+    "short_name": "NCUT勇士",
+    "description": "NCUT校园地图参观、摸金与生存模式",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "orientation": "landscape",
+    "background_color": "#17201a",
+    "theme_color": "#17201a",
+    "lang": "zh-CN"
+}

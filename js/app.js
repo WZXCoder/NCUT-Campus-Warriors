@@ -116,6 +116,7 @@
         function runCombatAction(action) {
             if (!['goldrush', 'survival'].includes(appState.mode) || !appState.currentRun) return;
             if (appState.currentRun.canControlPlayer && !appState.currentRun.canControlPlayer()) return;
+            global.NCUTMap.audio?.unlock?.();
             action();
         }
 
@@ -123,7 +124,6 @@
             root: document.getElementById('mobile-controls'),
             joystickEl: document.getElementById('mobile-joystick'),
             actionsEl: document.getElementById('mobile-actions'),
-            rotateHintEl: document.getElementById('rotate-hint'),
             attackBtn: document.getElementById('mobile-btn-attack'),
             pickupBtn: document.getElementById('mobile-btn-pickup'),
             skillBtn: document.getElementById('mobile-btn-skill'),
@@ -137,6 +137,11 @@
                 runCombatAction(() => appState.currentRun.tryExtract?.());
             },
         });
+
+        const mobileOrientation = touchControlsFactory.createOrientationManager({
+            hintEl: document.getElementById('landscape-hint'),
+        });
+        mobileOrientation.init();
 
         controls.createControls({
             canvas,
@@ -161,21 +166,21 @@
                 player.disable();
                 appState.mode = 'lobby';
                 mobileControls.setGameMode(null);
-                mobileControls.unlockLandscape();
             } else if (viewName === 'visit' || viewName === 'goldrush' || viewName === 'survival') {
                 player.enable();
                 minimap.show();
                 mapRenderer.resizeCanvas();
                 appState.mode = viewName;
                 mobileControls.setGameMode(viewName);
-                mobileControls.tryLockLandscape();
             } else {
                 minimap.hide();
                 player.disable();
                 appState.mode = 'auth';
                 mobileControls.setGameMode(null);
-                mobileControls.unlockLandscape();
             }
+
+            mobileOrientation.tryLockLandscape();
+            mobileOrientation.updateHint();
         }
 
         async function refreshGameData() {
@@ -369,24 +374,29 @@
             window.addEventListener('resize', () => {
                 mapRenderer.resizeCanvas();
                 mobileControls.updateVisibility();
+                mobileOrientation.updateHint();
             });
 
             let weatherTimer = 0;
             let minimapFrame = 0;
+            let lastFrameTime = performance.now();
             const WEATHER_INTERVAL = 40000;
 
-            function gameLoop() {
+            function gameLoop(now) {
                 requestAnimationFrame(gameLoop);
+
+                const deltaTime = Math.min(Math.max((now - lastFrameTime) / 1000, 0), 0.05);
+                lastFrameTime = now;
 
                 if (document.hidden) return;
 
                 const inGame = appState.mode === 'visit' || appState.mode === 'goldrush' || appState.mode === 'survival';
                 if (!inGame) return;
 
-                player.update();
+                player.update(deltaTime);
                 camera.update();
                 auth.updateOnlineStatus(player.state.x, player.state.y);
-                if (appState.currentRun) appState.currentRun.update();
+                if (appState.currentRun) appState.currentRun.update(deltaTime);
                 mapRenderer.render();
                 if (appState.currentRun) appState.currentRun.render(ctx, camera);
                 weather.draw(ctx, camera, bounds);
@@ -396,7 +406,7 @@
                     minimap.render();
                 }
 
-                weatherTimer += 16;
+                weatherTimer += deltaTime * 1000;
                 if (weatherTimer >= WEATHER_INTERVAL) {
                     weatherTimer = 0;
                     weather.randomWeather();
@@ -583,6 +593,7 @@
             }
 
             try {
+                await assets.preloadCombatAssets({ skinItemId: appState.profile?.currentSkinItemId });
                 await appState.currentRun.start();
             } catch (error) {
                 console.error('[goldrush] start failed:', error);
@@ -766,6 +777,7 @@
             }
 
             try {
+                await assets.preloadCombatAssets({ skinItemId: appState.profile?.currentSkinItemId });
                 await appState.currentRun.start();
             } catch (error) {
                 console.error('[survival] start failed:', error);
@@ -1036,6 +1048,7 @@
 
         attackBtn.addEventListener('click', () => {
             if (appState.currentRun?.canControlPlayer && !appState.currentRun.canControlPlayer()) return;
+            global.NCUTMap.audio?.unlock?.();
             if (appState.currentRun) appState.currentRun.attackNearest();
         });
 
@@ -1048,6 +1061,7 @@
             switch (event.key.toLowerCase()) {
                 case 'k':
                     event.preventDefault();
+                    global.NCUTMap.audio?.unlock?.();
                     appState.currentRun.attackNearest();
                     break;
                 case 'l':

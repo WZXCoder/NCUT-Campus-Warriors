@@ -5,12 +5,83 @@
             || navigator.maxTouchPoints > 0;
     }
 
+    function isPortrait() {
+        return window.innerHeight > window.innerWidth;
+    }
+
+    function createOrientationManager(options = {}) {
+        const { hintEl } = options;
+        const state = {
+            isMobile: isCoarsePointer(),
+        };
+
+        function updateHint() {
+            if (!hintEl || !state.isMobile) return;
+            const portrait = isPortrait();
+            hintEl.classList.toggle('hidden', !portrait);
+            document.documentElement.classList.toggle('mobile-portrait', portrait);
+            document.documentElement.classList.toggle('mobile-landscape', !portrait);
+        }
+
+        async function tryLockLandscape() {
+            if (!state.isMobile) return false;
+            const orientation = screen.orientation;
+            if (!orientation?.lock) return false;
+
+            const candidates = ['landscape-primary', 'landscape', 'landscape-secondary'];
+            for (const mode of candidates) {
+                try {
+                    await orientation.lock(mode);
+                    updateHint();
+                    return orientation.type?.includes('landscape') ?? true;
+                } catch (_) {
+                    // 部分浏览器需用户手势或全屏，继续尝试下一种
+                }
+            }
+            return false;
+        }
+
+        function bindGestureLock() {
+            if (!state.isMobile) return;
+            const retry = () => {
+                tryLockLandscape();
+            };
+            ['touchstart', 'pointerdown', 'click'].forEach(eventName => {
+                document.addEventListener(eventName, retry, { passive: true });
+            });
+        }
+
+        function init() {
+            if (!state.isMobile) return;
+
+            document.documentElement.classList.add('mobile-device');
+            updateHint();
+            tryLockLandscape();
+            bindGestureLock();
+
+            window.addEventListener('resize', updateHint);
+            window.addEventListener('orientationchange', () => {
+                setTimeout(() => {
+                    tryLockLandscape();
+                    updateHint();
+                }, 150);
+            });
+        }
+
+        return {
+            state,
+            init,
+            tryLockLandscape,
+            updateHint,
+            isPortrait,
+        };
+    }
+
     function createTouchControls(options) {
         const {
             root,
             joystickEl,
             actionsEl,
-            rotateHintEl,
             attackBtn,
             pickupBtn,
             skillBtn,
@@ -32,10 +103,6 @@
             isMobile: isCoarsePointer(),
         };
 
-        function isPortrait() {
-            return window.innerHeight > window.innerWidth;
-        }
-
         function isInGame() {
             return gameMode === 'visit' || gameMode === 'goldrush' || gameMode === 'survival';
         }
@@ -48,7 +115,6 @@
             pickupBtn.classList.toggle('hidden', !show || gameMode === 'visit');
             skillBtn.classList.toggle('hidden', !show || gameMode === 'visit');
             extractBtn.classList.toggle('hidden', !show || gameMode !== 'goldrush');
-            rotateHintEl.classList.toggle('hidden', !(show && isPortrait()));
             document.body.classList.toggle('mobile-game-active', show);
         }
 
@@ -140,23 +206,6 @@
             joystickEl.addEventListener('pointercancel', endJoystick);
         }
 
-        async function tryLockLandscape() {
-            if (!state.isMobile) return;
-            try {
-                if (screen.orientation?.lock) {
-                    await screen.orientation.lock('landscape');
-                }
-            } catch (_) {
-                // 部分浏览器需全屏或用户手势，忽略失败
-            }
-        }
-
-        function unlockLandscape() {
-            try {
-                screen.orientation?.unlock?.();
-            } catch (_) {}
-        }
-
         bindJoystick();
         bindHoldButton(attackBtn, onAttack);
         bindHoldButton(pickupBtn, onPickup);
@@ -164,16 +213,11 @@
         bindHoldButton(extractBtn, onExtract);
 
         window.addEventListener('resize', updateVisibility);
-        window.addEventListener('orientationchange', () => {
-            setTimeout(updateVisibility, 120);
-        });
 
         return {
             state,
             setGameMode,
             isActive,
-            tryLockLandscape,
-            unlockLandscape,
             clearJoystick,
             updateVisibility,
         };
@@ -183,6 +227,7 @@
         ...global.NCUTMap,
         touchControls: {
             createTouchControls,
+            createOrientationManager,
             isCoarsePointer,
         },
     };

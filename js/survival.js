@@ -1,5 +1,6 @@
 (function(global) {
-    const { assets } = global.NCUTMap;
+    const { assets, audio } = global.NCUTMap;
+    const { getWorldViewport, isWorldPointInViewport } = global.NCUTMap.utils;
 
     const SURVIVAL_MODE_CONFIG = {
         solo: { label: '单人', evolutionInterval: 20, baseMonsters: 10, maxMonsters: 30, teamSize: 1 },
@@ -19,14 +20,16 @@
         return Math.floor(randomBetween(min, max + 1));
     }
 
-    const PLAYER_BASE_SPEED = 0.01;
+    const { MOVEMENT } = global.NCUTMap;
 
     function getPlayerBaseMoveStep() {
-        return PLAYER_BASE_SPEED * 30;
+        return MOVEMENT.PLAYER_BASE_SPEED * MOVEMENT.MOVE_TICK_SCALE;
     }
 
     function randomEntityMoveStep(scale = 1) {
-        return randomBetween(0.9, 1.2) * getPlayerBaseMoveStep() * scale;
+        return randomBetween(MOVEMENT.NPC_SPEED_RATIO_MIN, MOVEMENT.NPC_SPEED_RATIO_MAX)
+            * getPlayerBaseMoveStep()
+            * scale;
     }
 
     function createSurvival(options) {
@@ -491,7 +494,7 @@
                 hp,
                 maxHp: hp,
                 attack: Math.round(randomInt(3, 10) * scale),
-                attackRange: randomBetween(30, 50) * Math.min(2.5, scale),
+                attackRange: randomBetween(15, 40) * Math.min(2.5, scale),
                 speed: randomEntityMoveStep(Math.min(1.5, scale)),
                 attackInterval: randomInt(300, 800),
                 lastAttackAt: 0,
@@ -675,6 +678,7 @@
             if (skillCtrl?.isPlayerInvincible?.()) return;
             const sourceMonster = typeof source === 'object' ? source : state.monsters.find(monster => monster.name === source);
             const finalAmount = skillCtrl ? skillCtrl.handleIncomingDamage(amount, sourceMonster) : amount;
+            audio?.playNpcAttack?.();
             state.health = Math.max(0, state.health - finalAmount);
             addEffect({
                 type: 'damage',
@@ -796,17 +800,18 @@
             return true;
         }
 
-        function moveToward(entity, target, speed, stopDistance = 5) {
+        function moveToward(entity, target, speed, stopDistance = 5, deltaTime = 1 / 60) {
             const dx = target.x - entity.x;
             const dy = target.y - entity.y;
             const d = Math.hypot(dx, dy) || 1;
             if (d <= stopDistance) return;
-            const step = Math.min(speed, d - stopDistance);
+            const frameScale = deltaTime * 60;
+            const step = Math.min(speed, d - stopDistance) * frameScale;
             entity.x += (dx / d) * step;
             entity.y += (dy / d) * step;
         }
 
-        function updateSharedMonster(monster, playerPoint, now) {
+        function updateSharedMonster(monster, playerPoint, now, deltaTime = 1 / 60) {
             if (monster.stunnedUntil && now < monster.stunnedUntil) return;
             if (monster.isAlly) return;
 
@@ -815,7 +820,7 @@
             if (monster.provokeUntil && now < monster.provokeUntil && monster.provokeTargetId) {
                 const rival = state.monsters.find(item => item.id === monster.provokeTargetId);
                 if (rival) {
-                    moveToward(monster, rival, monster.speed, 3);
+                    moveToward(monster, rival, monster.speed, 3, deltaTime);
                     if (distance(monster, rival) <= monster.attackRange && now - monster.lastAttackAt > monster.attackInterval) {
                         monster.lastAttackAt = now;
                         rival.hp -= monster.attack;
@@ -827,7 +832,7 @@
 
             if (!(monster.rootedUntil && now < monster.rootedUntil) && (skillCtrl?.getActiveClone?.() || !skillCtrl?.isPlayerInvisible?.())) {
                 const moveSpeed = skillCtrl ? skillCtrl.getMonsterMoveSpeed(monster, playerPoint) : monster.speed;
-                moveToward(monster, chasePoint, moveSpeed, 3);
+                moveToward(monster, chasePoint, moveSpeed, 3, deltaTime);
             }
 
             const attackInterval = skillCtrl ? skillCtrl.getMonsterAttackInterval(monster, playerPoint) : monster.attackInterval;
@@ -844,6 +849,7 @@
                         duration: 260,
                     });
                     skillCtrl.damageClone(monster.attack, monster.name);
+                    audio?.playNpcAttack?.();
                 }
                 return;
             }
@@ -888,7 +894,7 @@
             }
         }
 
-        function updateLocalMonster(monster, playerPoint, now) {
+        function updateLocalMonster(monster, playerPoint, now, deltaTime = 1 / 60) {
             if (monster.stunnedUntil && now < monster.stunnedUntil) return;
             if (monster.isAlly) return;
 
@@ -898,7 +904,7 @@
             if (monster.provokeUntil && now < monster.provokeUntil && monster.provokeTargetId) {
                 const rival = state.monsters.find(item => item.id === monster.provokeTargetId);
                 if (rival) {
-                    moveToward(monster, rival, monster.speed, 3);
+                    moveToward(monster, rival, monster.speed, 3, deltaTime);
                     if (distance(monster, rival) <= monster.attackRange && now - monster.lastAttackAt > monster.attackInterval) {
                         monster.lastAttackAt = now;
                         rival.hp -= monster.attack;
@@ -918,7 +924,7 @@
                 // rooted
             } else if (clone || !skillCtrl?.isPlayerInvisible?.()) {
                 const moveSpeed = skillCtrl ? skillCtrl.getMonsterMoveSpeed(monster, playerPoint) : monster.speed;
-                moveToward(monster, chasePoint, moveSpeed, 3);
+                moveToward(monster, chasePoint, moveSpeed, 3, deltaTime);
             }
 
             const attackInterval = skillCtrl ? skillCtrl.getMonsterAttackInterval(monster, playerPoint) : monster.attackInterval;
@@ -934,6 +940,7 @@
                         duration: 260,
                     });
                     skillCtrl.damageClone(monster.attack, monster.name);
+                    audio?.playNpcAttack?.();
                 }
                 return;
             }
@@ -968,7 +975,7 @@
             state.lastPlayerPos = { x: player.state.x, y: player.state.y };
         }
 
-        function update() {
+        function update(deltaTime = 1 / 60) {
             if (!state.active) return;
             const now = performance.now();
             const playerPoint = { x: player.state.x, y: player.state.y };
@@ -976,7 +983,7 @@
                 updateSpeedDurability();
             }
             syncSkillSpeedBonus();
-            skillCtrl?.updateTimedEffects?.(now);
+            skillCtrl?.updateTimedEffects?.(now, deltaTime);
             maintainDrops();
             if (!state.useSharedMonsters) {
                 maintainMonsters();
@@ -987,9 +994,9 @@
 
             state.monsters.forEach(monster => {
                 if (state.useSharedMonsters && state.isRoomHost) {
-                    updateSharedMonster(monster, playerPoint, now);
+                    updateSharedMonster(monster, playerPoint, now, deltaTime);
                 } else if (!state.useSharedMonsters) {
-                    updateLocalMonster(monster, playerPoint, now);
+                    updateLocalMonster(monster, playerPoint, now, deltaTime);
                 }
             });
             interpolateSharedMonsters(now);
@@ -1064,6 +1071,7 @@
             state.lastPlayerAttackAt = now;
             skillCtrl?.onPlayerAttackPerformed?.();
             skillCtrl?.consumeMultiTargetHit?.();
+            audio?.playPlayerAttack?.();
 
             targets.forEach((target, index) => {
                 let damage = getStrikeDamage();
@@ -1137,9 +1145,10 @@
             return imageCache[src];
         }
 
-        function drawDrop(ctx, cameraRef, drop) {
+        function drawDrop(ctx, cameraRef, drop, viewport) {
             const item = assets.getItemById(drop.itemId);
             if (!item) return;
+            if (viewport && !isWorldPointInViewport(drop.x, drop.y, viewport, 32)) return;
             const point = cameraRef.worldToScreen(drop.x, drop.y);
             const size = Math.max(16, 16 * cameraRef.state.zoom);
             ctx.save();
@@ -1265,11 +1274,25 @@
 
         function render(ctx, cameraRef = camera) {
             if (!state.active) return;
-            state.drops.forEach(drop => drawDrop(ctx, cameraRef, drop));
+            const viewport = getWorldViewport(cameraRef, 100);
+            const entityRadius = Math.max(48, player.state.size * 1.5);
+
+            state.drops.forEach(drop => drawDrop(ctx, cameraRef, drop, viewport));
             drawAttackRange(ctx, cameraRef);
-            state.monsters.forEach(monster => drawMonster(ctx, cameraRef, monster));
-            state.remotePlayers.forEach(remote => drawTeammate(ctx, cameraRef, remote));
-            if (skillCtrl?.state?.clone) drawClone(ctx, cameraRef, skillCtrl.getActiveClone?.() || skillCtrl.state.clone);
+            state.monsters.forEach(monster => {
+                if (isWorldPointInViewport(monster.x, monster.y, viewport, entityRadius)) {
+                    drawMonster(ctx, cameraRef, monster);
+                }
+            });
+            state.remotePlayers.forEach(remote => {
+                if (isWorldPointInViewport(remote.x, remote.y, viewport, entityRadius)) {
+                    drawTeammate(ctx, cameraRef, remote);
+                }
+            });
+            const clone = skillCtrl?.getActiveClone?.() || skillCtrl?.state?.clone;
+            if (clone && isWorldPointInViewport(clone.x, clone.y, viewport, entityRadius)) {
+                drawClone(ctx, cameraRef, clone);
+            }
             drawPlayerHealth(ctx, cameraRef);
             drawEffects(ctx, cameraRef);
         }

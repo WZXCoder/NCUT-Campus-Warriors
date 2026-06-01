@@ -218,6 +218,11 @@
         { id: 'collectible_badge', type: 'collectible', name: 'NCUT校徽', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/2.png`, description: '收藏值+100' },
         { id: 'collectible_motto', type: 'collectible', name: 'NCUT校训', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/3.png`, description: '收藏值+100' },
         { id: 'collectible_map', type: 'collectible', name: 'NCUT地图', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/4.jpg`, description: '收藏值+100' },
+        { id: 'collectible_like', type: 'collectible', name: 'NCUT点赞', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/5.jpg`, description: '收藏值+100' },
+        { id: 'collectible_facepalm', type: 'collectible', name: 'NCUT捂脸', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/6.jpg`, description: '收藏值+100' },
+        { id: 'collectible_dropout', type: 'collectible', name: 'NCUT退学通知书', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/7.jpg`, description: '收藏值+100' },
+        { id: 'collectible_quit', type: 'collectible', name: 'NCUT不读了', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/8.jpg`, description: '收藏值+100' },
+        { id: 'collectible_escape', type: 'collectible', name: '逃离NCUT', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/9.jpg`, description: '收藏值+100' },
     ];
 
     const npcNames = [
@@ -394,6 +399,40 @@
     }
 
     const skinImageCache = new Map();
+    const preloadPromises = new Map();
+
+    function preloadUrl(url, timeoutMs = 8000) {
+        if (!url) return Promise.resolve();
+        if (preloadPromises.has(url)) return preloadPromises.get(url);
+
+        const promise = new Promise(resolve => {
+            const img = new Image();
+            const finish = () => resolve();
+            img.onload = finish;
+            img.onerror = finish;
+            img.src = url;
+            setTimeout(finish, timeoutMs);
+        });
+        preloadPromises.set(url, promise);
+        return promise;
+    }
+
+    async function preloadCombatAssets(options = {}) {
+        const { skinItemId } = options;
+        const urls = new Set([DEFAULT_SKIN_PATH]);
+        const skin = skinItemId ? getItemById(skinItemId) : null;
+        if (skin?.assetPath) urls.add(skin.assetPath);
+
+        npcImages.slice(0, 14).forEach(url => urls.add(url));
+        collectibles.slice(0, 6).forEach(item => {
+            if (item.assetPath) urls.add(item.assetPath);
+        });
+
+        getNpcImage(0);
+        getSkinImageForItemId(skinItemId);
+
+        await Promise.all([...urls].map(url => preloadUrl(url)));
+    }
 
     function getSkinImageForItemId(itemId) {
         const skin = itemId ? getItemById(itemId) : null;
@@ -581,6 +620,7 @@
             rebuildItemMap,
             getNpcImage,
             getSkinImageForItemId,
+            preloadCombatAssets,
             getSkinFallbackColor,
             drawPixelIcon,
             createPixelIconDataUrl,

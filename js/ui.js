@@ -724,7 +724,9 @@
     function showCollections(inventory) {
         const ownedQuantityById = Object.fromEntries(inventory.map(entry => [entry.itemId, entry.quantity]));
         const sorted = [...assets.collectibles].sort((a, b) => Number(!ownedQuantityById[a.id]) - Number(!ownedQuantityById[b.id]));
-        const html = `<div class="item-grid">${sorted.map(item => {
+        const html = `
+            <p class="item-meta collection-hint">收藏品需参与摸金模式获得，但很稀有</p>
+            <div class="item-grid">${sorted.map(item => {
             const quantity = ownedQuantityById[item.id] || 0;
             const unlocked = quantity > 0;
             return `
@@ -1084,7 +1086,7 @@
                 </div>
                 <div class="gameplay-guide-card">
                     <h4>摸金模式</h4>
-                    <p>在校园中搜刮宝石与物资，击败怪物，找到撤离点并成功撤离即可带出收益。</p>
+                    <p>在校园中搜刮宝石与物资，击败怪物，找到撤离点（北门或南门）并成功撤离即可带出收益。</p>
                     <ul>
                         <li>本局死亡或未撤离，背包物品会丢失</li>
                         <li>PC：K 攻击、L 拾取、I 技能、J 撤离</li>

@@ -1,11 +1,13 @@
 (function(global) {
+    const { MOVEMENT } = global.NCUTMap;
+
     function createPlayer(camera, bounds, config) {
         const player = {
             x: bounds.centerX,
             y: bounds.centerY,
             targetX: bounds.centerX,
             targetY: bounds.centerY,
-            speed: 0.01,
+            speed: MOVEMENT.PLAYER_BASE_SPEED,
             size: 24,
             isMoving: false,
             enabled: false,
@@ -35,12 +37,20 @@
         function update(deltaTime = 1/60) {
             if (!player.enabled) return;
 
-            const moveSpeed = player.speed * (deltaTime * 60) * 30;
-            
-            if (keys.up) player.targetY -= moveSpeed;
-            if (keys.down) player.targetY += moveSpeed;
-            if (keys.left) player.targetX -= moveSpeed;
-            if (keys.right) player.targetX += moveSpeed;
+            const moveSpeed = player.speed * (deltaTime * 60) * MOVEMENT.MOVE_TICK_SCALE;
+
+            let inputX = 0;
+            let inputY = 0;
+            if (keys.left) inputX -= 1;
+            if (keys.right) inputX += 1;
+            if (keys.up) inputY -= 1;
+            if (keys.down) inputY += 1;
+
+            const keyboardLen = Math.hypot(inputX, inputY);
+            if (keyboardLen > 0) {
+                player.targetX += (inputX / keyboardLen) * moveSpeed;
+                player.targetY += (inputY / keyboardLen) * moveSpeed;
+            }
 
             if (joystick.active) {
                 player.targetX += joystick.x * moveSpeed;

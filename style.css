@@ -1211,9 +1211,45 @@ canvas {
 
 .mobile-joystick,
 .mobile-actions,
-.mobile-btn,
-.rotate-hint {
+.mobile-btn {
     pointer-events: auto;
+}
+
+.landscape-hint {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 24px;
+    text-align: center;
+    color: #f4ead7;
+    background: rgba(10, 10, 14, 0.94);
+    pointer-events: auto;
+}
+
+.landscape-hint.hidden {
+    display: none !important;
+}
+
+.landscape-hint-icon {
+    font-size: 56px;
+    color: #ffd080;
+    animation: rotate-hint-spin 2.2s ease-in-out infinite;
+}
+
+.landscape-hint p {
+    max-width: 280px;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+@keyframes rotate-hint-spin {
+    0%, 100% { transform: rotate(0deg); }
+    45% { transform: rotate(90deg); }
 }
 
 .mobile-joystick {
@@ -1258,10 +1294,12 @@ canvas {
     position: absolute;
     right: max(18px, env(safe-area-inset-right));
     bottom: max(18px, env(safe-area-inset-bottom));
-    display: flex;
-    flex-direction: row-reverse;
-    align-items: flex-end;
-    gap: clamp(10px, 2vmin, 16px);
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    gap: clamp(10px, 2vmin, 14px);
+    align-items: end;
+    justify-items: center;
 }
 
 .mobile-btn {
@@ -1287,6 +1325,8 @@ canvas {
 }
 
 .mobile-btn-attack {
+    grid-column: 2;
+    grid-row: 2;
     width: clamp(68px, 14vmin, 84px);
     height: clamp(68px, 14vmin, 84px);
     font-size: clamp(22px, 4.5vmin, 28px);
@@ -1303,45 +1343,25 @@ canvas {
     border: 2px solid rgba(180, 210, 255, 0.75);
 }
 
+.mobile-btn-pickup {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.mobile-btn-skill {
+    grid-column: 1;
+    grid-row: 1;
+}
+
 .mobile-btn-extract {
+    grid-column: 2;
+    grid-row: 1;
     width: clamp(54px, 11vmin, 64px);
     height: clamp(54px, 11vmin, 64px);
     font-size: clamp(18px, 3.6vmin, 22px);
     background: radial-gradient(circle at 35% 30%, #ffd080, #c58a1a 68%);
     border: 2px solid rgba(255, 224, 160, 0.8);
     color: #2a1808;
-}
-
-.rotate-hint {
-    position: absolute;
-    inset: 0;
-    z-index: 90;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    padding: 24px;
-    text-align: center;
-    color: #f4ead7;
-    background: rgba(10, 10, 14, 0.92);
-}
-
-.rotate-hint-icon {
-    font-size: 56px;
-    color: #ffd080;
-    animation: rotate-hint-spin 2.2s ease-in-out infinite;
-}
-
-.rotate-hint p {
-    max-width: 280px;
-    font-size: 16px;
-    line-height: 1.5;
-}
-
-@keyframes rotate-hint-spin {
-    0%, 100% { transform: rotate(0deg); }
-    45% { transform: rotate(90deg); }
 }
 
 body.mobile-game-active .hud-actions #attack-btn {

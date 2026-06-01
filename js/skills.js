@@ -639,7 +639,7 @@
             }
         }
 
-        function updateClone(now, monsters) {
+        function updateClone(now, monsters, deltaTime = 1 / 60) {
             const clone = getActiveClone();
             if (!clone) return;
 
@@ -652,7 +652,8 @@
             if (dist > stopDistance) {
                 const dx = target.x - clone.x;
                 const dy = target.y - clone.y;
-                const step = Math.min(clone.speed || getPlayerBaseMoveStep(), Math.max(0, dist - stopDistance));
+                const frameScale = deltaTime * 60;
+                const step = Math.min(clone.speed || getPlayerBaseMoveStep(), Math.max(0, dist - stopDistance)) * frameScale;
                 clone.x += (dx / dist) * step;
                 clone.y += (dy / dist) * step;
             }
@@ -681,7 +682,8 @@
             }
         }
 
-        function updateAllies(now, monsters) {
+        function updateAllies(now, monsters, deltaTime = 1 / 60) {
+            const frameScale = deltaTime * 60;
             monsters.forEach(monster => {
                 if (!monster.isAlly) return;
                 if (monster.allyUntil && now > monster.allyUntil) {
@@ -695,7 +697,7 @@
                     const dx = target.x - monster.x;
                     const dy = target.y - monster.y;
                     const d = Math.hypot(dx, dy) || 1;
-                    const step = Math.min(monster.speed, d - 3);
+                    const step = Math.min(monster.speed, d - 3) * frameScale;
                     monster.x += (dx / d) * step;
                     monster.y += (dy / d) * step;
                 }
@@ -707,7 +709,7 @@
             });
         }
 
-        function updateTimedEffects(now) {
+        function updateTimedEffects(now, deltaTime = 1 / 60) {
             const playerPoint = getPlayerPoint();
 
             if (state.regenUntil > now && now - state.lastRegenTick >= 1000) {
@@ -733,8 +735,8 @@
                 }
             }
 
-            updateClone(now, getMonsters());
-            updateAllies(now, getMonsters());
+            updateClone(now, getMonsters(), deltaTime);
+            updateAllies(now, getMonsters(), deltaTime);
         }
 
         function getHudText() {

@@ -49,10 +49,19 @@
         [BTYPE.GARDEN]: { main: '#6ab86a', roof: '#5aa85a', edge: '#3a683a', name: '广场/园林', mcBlock: '草方块/绿草坪' },
     };
 
+    const MOVEMENT = {
+        PLAYER_BASE_SPEED: 0.02,
+        /** 60fps 下每帧位移 = PLAYER_BASE_SPEED × MOVE_TICK_SCALE；由 30 提至 48，兼顾高刷 PC 与移动端一致 */
+        MOVE_TICK_SCALE: 48,
+        NPC_SPEED_RATIO_MIN: 0.9,
+        NPC_SPEED_RATIO_MAX: 1.2,
+    };
+
     global.NCUTMap = {
         ...(global.NCUTMap || {}),
         CONFIG,
         BTYPE,
         TYPE_COLORS,
+        MOVEMENT,
     };
 })(window);

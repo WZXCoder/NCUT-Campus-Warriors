@@ -5,11 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-orientations" content="landscape-left landscape-right">
     <meta name="screen-orientation" content="landscape">
+    <meta name="x5-orientation" content="landscape">
+    <meta name="x5-fullscreen" content="true">
+    <link rel="manifest" href="manifest.webmanifest">
     <title>NCUT校园勇士</title>
-    <link rel="stylesheet" href="style.css?v=20260619">
+    <link rel="stylesheet" href="style.css?v=20260628">
 </head>
 <body>
+    <div id="landscape-hint" class="landscape-hint hidden" aria-live="polite">
+        <div class="landscape-hint-icon">↻</div>
+        <p>请旋转设备至横屏以获得最佳体验</p>
+    </div>
+
     <div id="auth-container" class="auth-container">
         <div class="auth-box">
             <div class="auth-header">
@@ -143,17 +152,13 @@
     </div>
 
     <div id="mobile-controls" class="mobile-controls hidden">
-        <div id="rotate-hint" class="rotate-hint hidden">
-            <div class="rotate-hint-icon">↻</div>
-            <p>请旋转设备至横屏以获得最佳体验</p>
-        </div>
         <div id="mobile-joystick" class="mobile-joystick" aria-label="移动摇杆">
             <div class="joystick-base"></div>
             <div class="joystick-thumb"></div>
         </div>
         <div id="mobile-actions" class="mobile-actions hidden">
-            <button type="button" id="mobile-btn-extract" class="mobile-btn mobile-btn-extract hidden" aria-label="撤离">撤</button>
             <button type="button" id="mobile-btn-skill" class="mobile-btn mobile-btn-skill" aria-label="技能">技</button>
+            <button type="button" id="mobile-btn-extract" class="mobile-btn mobile-btn-extract hidden" aria-label="撤离">撤</button>
             <button type="button" id="mobile-btn-pickup" class="mobile-btn mobile-btn-pickup" aria-label="拾取">拾</button>
             <button type="button" id="mobile-btn-attack" class="mobile-btn mobile-btn-attack" aria-label="攻击">攻</button>
         </div>
@@ -163,28 +168,29 @@
     <div id="toast" class="toast hidden"></div>
 
     <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script defer src="js/constants.js"></script>
-    <script defer src="js/assets.js?v=20260618"></script>
-    <script defer src="js/skills.js?v=20260616"></script>
+    <script defer src="js/constants.js?v=20260630"></script>
+    <script defer src="js/assets.js?v=20260630"></script>
+    <script defer src="js/skills.js?v=20260630"></script>
     <script defer src="js/supabase-client.js"></script>
     <script defer src="js/store.js?v=20260616"></script>
     <script defer src="js/social.js?v=20260528"></script>
-    <script defer src="js/realtime.js?v=20260618"></script>
-    <script defer src="js/ui.js?v=20260617"></script>
+    <script defer src="js/realtime.js?v=20260621"></script>
+    <script defer src="js/ui.js?v=20260628"></script>
     <script defer src="js/data.js"></script>
-    <script defer src="js/utils.js"></script>
+    <script defer src="js/utils.js?v=20260630"></script>
     <script defer src="js/texture.js"></script>
     <script defer src="js/camera.js?v=20260605"></script>
     <script defer src="js/auth.js?v=20260618"></script>
-    <script defer src="js/player.js"></script>
-    <script defer src="js/renderer.js?v=20260618"></script>
-    <script defer src="js/minimap.js"></script>
+    <script defer src="js/player.js?v=20260630"></script>
+    <script defer src="js/renderer.js?v=20260630"></script>
+    <script defer src="js/minimap.js?v=20260630"></script>
     <script defer src="js/controls.js"></script>
-    <script defer src="js/touch-controls.js?v=20260613"></script>
-    <script defer src="js/goldrush.js?v=20260618"></script>
-    <script defer src="js/survival.js?v=20260618"></script>
+    <script defer src="js/touch-controls.js?v=20260620"></script>
+    <script defer src="js/audio.js?v=20260628"></script>
+    <script defer src="js/goldrush.js?v=20260701"></script>
+    <script defer src="js/survival.js?v=20260701"></script>
     <script defer src="js/weather.js"></script>
-    <script defer src="js/app.js?v=20260619"></script>
+    <script defer src="js/app.js?v=20260630"></script>
     <script defer src="main.js"></script>
 </body>
 </html>

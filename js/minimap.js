@@ -1,4 +1,6 @@
 (function(global) {
+    const { getCanvasDpr } = global.NCUTMap.utils;
+
     function createMinimap(options) {
         const {
             container,
@@ -59,7 +61,7 @@
 
         function resizeCanvas() {
             const rect = container.getBoundingClientRect();
-            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            const dpr = getCanvasDpr();
             const nextWidth = Math.max(1, Math.round(rect.width));
             const nextHeight = Math.max(1, Math.round(rect.height));
 
