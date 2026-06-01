@@ -138,7 +138,7 @@
             },
         });
 
-        const mobileOrientation = touchControlsFactory.getOrCreateOrientationManager({
+        const mobileOrientation = touchControlsFactory.createOrientationManager({
             hintEl: document.getElementById('landscape-hint'),
         });
         mobileOrientation.init();

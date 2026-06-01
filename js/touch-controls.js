@@ -22,23 +22,10 @@
         return !isPortrait();
     }
 
-    let sharedOrientationManager = null;
-
-    function getOrCreateOrientationManager(options = {}) {
-        if (!sharedOrientationManager) {
-            sharedOrientationManager = createOrientationManager(options);
-        } else if (options.hintEl && !sharedOrientationManager.state.hintEl) {
-            sharedOrientationManager.state.hintEl = options.hintEl;
-        }
-        return sharedOrientationManager;
-    }
-
     function createOrientationManager(options = {}) {
         const { hintEl } = options;
         const state = {
             isMobile: isCoarsePointer(),
-            hintEl,
-            initialized: false,
         };
 
         function notifyLayoutChange() {
@@ -49,7 +36,10 @@
             const root = document.documentElement;
             const portrait = isPortrait();
             const nativeLandscape = isNativeLandscape();
-            const shouldForce = state.isMobile && portrait && !nativeLandscape;
+            const shouldForce = state.isMobile
+                && isAndroidDevice()
+                && portrait
+                && !nativeLandscape;
 
             const hadForce = root.classList.contains('use-css-landscape');
             root.classList.toggle('use-css-landscape', shouldForce);
@@ -81,7 +71,7 @@
             for (const mode of candidates) {
                 try {
                     await orientation.lock(mode);
-                    return orientation.type?.includes('landscape') === true;
+                    return orientation.type?.includes('landscape') ?? true;
                 } catch (_) {
                     // 需用户手势或全屏时继续尝试
                 }
@@ -95,9 +85,8 @@
                 || screen.msLockOrientation;
             if (!legacy) return false;
             try {
-                const ok = legacy.call(screen, 'landscape')
+                return legacy.call(screen, 'landscape')
                     || legacy.call(screen, 'landscape-primary');
-                return ok && isNativeLandscape();
             } catch (_) {
                 return false;
             }
@@ -120,24 +109,27 @@
         async function tryLockLandscape() {
             if (!state.isMobile) return false;
 
-            if (!isNativeLandscape()) {
-                await lockWithModernApi();
-            }
-            if (!isNativeLandscape()) {
-                lockWithLegacyApi();
-            }
-            if (!isNativeLandscape()) {
-                await requestFullscreenIfNeeded();
-                await lockWithModernApi();
-                if (!isNativeLandscape()) {
-                    lockWithLegacyApi();
-                }
+            if (await lockWithModernApi()) {
+                document.documentElement.classList.remove('use-css-landscape');
+                updateHint();
+                return true;
             }
 
-            syncCssLandscape();
+            if (lockWithLegacyApi()) {
+                document.documentElement.classList.remove('use-css-landscape');
+                updateHint();
+                return true;
+            }
+
+            await requestFullscreenIfNeeded();
+            if (await lockWithModernApi() || lockWithLegacyApi()) {
+                document.documentElement.classList.remove('use-css-landscape');
+                updateHint();
+                return true;
+            }
+
             updateHint();
-            return isNativeLandscape()
-                || document.documentElement.classList.contains('use-css-landscape');
+            return isNativeLandscape();
         }
 
         function bindGestureLock() {
@@ -158,8 +150,7 @@
         }
 
         function init() {
-            if (!state.isMobile || state.initialized) return;
-            state.initialized = true;
+            if (!state.isMobile) return;
 
             document.documentElement.classList.add('mobile-device');
             syncCssLandscape();
@@ -329,34 +320,11 @@
         };
     }
 
-    function bootstrapMobileOrientation() {
-        if (!isCoarsePointer()) return;
-        document.documentElement.classList.add('mobile-device');
-        const portrait = isPortrait();
-        if (portrait && !isNativeLandscape()) {
-            document.documentElement.classList.add('use-css-landscape');
-        }
-        const run = () => {
-            const mgr = getOrCreateOrientationManager({
-                hintEl: document.getElementById('landscape-hint'),
-            });
-            mgr.init();
-        };
-        if (document.body) {
-            run();
-        } else {
-            document.addEventListener('DOMContentLoaded', run);
-        }
-    }
-
-    bootstrapMobileOrientation();
-
     global.NCUTMap = {
         ...global.NCUTMap,
         touchControls: {
             createTouchControls,
             createOrientationManager,
-            getOrCreateOrientationManager,
             isCoarsePointer,
         },
     };
