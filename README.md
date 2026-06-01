@@ -247,8 +247,8 @@ ncut2/
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/<your-username>/ncut2.git
-cd ncut2
+git clone https://github.com/WZXCoder/NCUT-Campus-Warriors.git
+cd NCUT-Campus-Warriors
 ```
 
 ### 2. 本地运行
