@@ -1235,13 +1235,18 @@ canvas {
         overflow: hidden;
         overscroll-behavior: none;
     }
+    
+    /* 移动端竖屏时隐藏横屏提示 */
+    .landscape-hint {
+        display: none !important;
+    }
 }
 
 /* Android 浏览器无法系统横屏时，CSS 模拟横屏布局 */
 html.mobile-device.use-css-landscape {
     position: fixed;
     top: 0;
-    left: 100vw;
+    left: 0;
     width: 100vh;
     height: 100vw;
     transform: rotate(90deg);
