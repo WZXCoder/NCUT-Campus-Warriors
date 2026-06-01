@@ -223,6 +223,8 @@
         { id: 'collectible_dropout', type: 'collectible', name: 'NCUT退学通知书', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/7.jpg`, description: '收藏值+100' },
         { id: 'collectible_quit', type: 'collectible', name: 'NCUT不读了', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/8.jpg`, description: '收藏值+100' },
         { id: 'collectible_escape', type: 'collectible', name: '逃离NCUT', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/9.jpg`, description: '收藏值+100' },
+        { id: 'collectible_dunpin', type: 'collectible', name: 'NCUT敦品楼', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/10.png`, description: '收藏值+100' },
+        { id: 'collectible_anniversary80', type: 'collectible', name: 'NCUT80周年logo', collectionValue: 100, assetPath: `${ASSET_BASE_URL}/cangpin/11.png`, description: '收藏值+100' },
     ];
 
     const npcNames = [
