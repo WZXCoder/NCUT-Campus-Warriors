@@ -1,4 +1,6 @@
 (function(global) {
+    const { getViewportWidth, getViewportHeight } = global.NCUTMap.utils;
+
     function createCamera(bounds, config) {
     const camera = {
         x: bounds.centerX,
@@ -15,8 +17,8 @@
     }
 
     function clampPosition(x, y) {
-        const halfWidth = window.innerWidth / 2 / camera.zoom;
-        const halfHeight = window.innerHeight / 2 / camera.zoom;
+        const halfWidth = getViewportWidth() / 2 / camera.zoom;
+        const halfHeight = getViewportHeight() / 2 / camera.zoom;
         
         const minX = bounds.minX + halfWidth;
         const maxX = bounds.maxX - halfWidth;
@@ -31,15 +33,15 @@
 
         function worldToScreen(wx, wy) {
             return {
-                x: (wx - camera.x) * camera.zoom + window.innerWidth / 2,
-                y: (wy - camera.y) * camera.zoom + window.innerHeight / 2,
+                x: (wx - camera.x) * camera.zoom + getViewportWidth() / 2,
+                y: (wy - camera.y) * camera.zoom + getViewportHeight() / 2,
             };
         }
 
         function screenToWorld(sx, sy) {
             return {
-                x: (sx - window.innerWidth / 2) / camera.zoom + camera.x,
-                y: (sy - window.innerHeight / 2) / camera.zoom + camera.y,
+                x: (sx - getViewportWidth() / 2) / camera.zoom + camera.x,
+                y: (sy - getViewportHeight() / 2) / camera.zoom + camera.y,
             };
         }
 
@@ -61,8 +63,8 @@
         }
 
         function fitToBounds() {
-            const fitZoomX = window.innerWidth / bounds.width;
-            const fitZoomY = window.innerHeight / bounds.height;
+            const fitZoomX = getViewportWidth() / bounds.width;
+            const fitZoomY = getViewportHeight() / bounds.height;
             const fitZoom = Math.min(fitZoomX, fitZoomY) * 0.85;
 
             camera.targetX = bounds.centerX;

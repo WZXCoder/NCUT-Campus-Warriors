@@ -44,11 +44,23 @@
         return Math.min(raw, cap);
     }
 
+    function usesCssLandscape() {
+        return document.documentElement.classList.contains('use-css-landscape');
+    }
+
+    function getViewportWidth() {
+        return usesCssLandscape() ? window.innerHeight : window.innerWidth;
+    }
+
+    function getViewportHeight() {
+        return usesCssLandscape() ? window.innerWidth : window.innerHeight;
+    }
+
     function getWorldViewport(camera, padding = 80) {
         const topLeft = camera.screenToWorld(-padding, -padding);
         const bottomRight = camera.screenToWorld(
-            window.innerWidth + padding,
-            window.innerHeight + padding,
+            getViewportWidth() + padding,
+            getViewportHeight() + padding,
         );
         return {
             minX: Math.min(topLeft.x, bottomRight.x),
@@ -72,6 +84,9 @@
             darkenColor,
             isCoarsePointerDevice,
             getCanvasDpr,
+            usesCssLandscape,
+            getViewportWidth,
+            getViewportHeight,
             getWorldViewport,
             isWorldPointInViewport,
         },

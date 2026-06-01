@@ -9,22 +9,61 @@
         return window.innerHeight > window.innerWidth;
     }
 
+    function isAndroidDevice() {
+        return /Android/i.test(navigator.userAgent);
+    }
+
+    function isNativeLandscape() {
+        const type = screen.orientation?.type || '';
+        if (type.includes('landscape')) return true;
+        if (typeof window.orientation === 'number') {
+            return Math.abs(window.orientation) === 90;
+        }
+        return !isPortrait();
+    }
+
     function createOrientationManager(options = {}) {
         const { hintEl } = options;
         const state = {
             isMobile: isCoarsePointer(),
         };
 
-        function updateHint() {
-            if (!hintEl || !state.isMobile) return;
-            const portrait = isPortrait();
-            hintEl.classList.toggle('hidden', !portrait);
-            document.documentElement.classList.toggle('mobile-portrait', portrait);
-            document.documentElement.classList.toggle('mobile-landscape', !portrait);
+        function notifyLayoutChange() {
+            window.dispatchEvent(new Event('resize'));
         }
 
-        async function tryLockLandscape() {
-            if (!state.isMobile) return false;
+        function syncCssLandscape() {
+            const root = document.documentElement;
+            const portrait = isPortrait();
+            const nativeLandscape = isNativeLandscape();
+            const shouldForce = state.isMobile
+                && isAndroidDevice()
+                && portrait
+                && !nativeLandscape;
+
+            const hadForce = root.classList.contains('use-css-landscape');
+            root.classList.toggle('use-css-landscape', shouldForce);
+            if (hadForce !== shouldForce) {
+                notifyLayoutChange();
+            }
+        }
+
+        function updateHint() {
+            if (!state.isMobile) return;
+
+            const portrait = isPortrait();
+            const cssForced = document.documentElement.classList.contains('use-css-landscape');
+            const showHint = portrait && !cssForced;
+
+            if (hintEl) {
+                hintEl.classList.toggle('hidden', !showHint);
+            }
+            document.documentElement.classList.toggle('mobile-portrait', portrait);
+            document.documentElement.classList.toggle('mobile-landscape', !portrait);
+            syncCssLandscape();
+        }
+
+        async function lockWithModernApi() {
             const orientation = screen.orientation;
             if (!orientation?.lock) return false;
 
@@ -32,13 +71,65 @@
             for (const mode of candidates) {
                 try {
                     await orientation.lock(mode);
-                    updateHint();
                     return orientation.type?.includes('landscape') ?? true;
                 } catch (_) {
-                    // 部分浏览器需用户手势或全屏，继续尝试下一种
+                    // 需用户手势或全屏时继续尝试
                 }
             }
             return false;
+        }
+
+        function lockWithLegacyApi() {
+            const legacy = screen.lockOrientation
+                || screen.mozLockOrientation
+                || screen.msLockOrientation;
+            if (!legacy) return false;
+            try {
+                return legacy.call(screen, 'landscape')
+                    || legacy.call(screen, 'landscape-primary');
+            } catch (_) {
+                return false;
+            }
+        }
+
+        async function requestFullscreenIfNeeded() {
+            if (!isAndroidDevice() || document.fullscreenElement) return;
+            const el = document.documentElement;
+            const request = el.requestFullscreen
+                || el.webkitRequestFullscreen
+                || el.msRequestFullscreen;
+            if (!request) return;
+            try {
+                await request.call(el);
+            } catch (_) {
+                // 无用户手势时可能失败
+            }
+        }
+
+        async function tryLockLandscape() {
+            if (!state.isMobile) return false;
+
+            if (await lockWithModernApi()) {
+                document.documentElement.classList.remove('use-css-landscape');
+                updateHint();
+                return true;
+            }
+
+            if (lockWithLegacyApi()) {
+                document.documentElement.classList.remove('use-css-landscape');
+                updateHint();
+                return true;
+            }
+
+            await requestFullscreenIfNeeded();
+            if (await lockWithModernApi() || lockWithLegacyApi()) {
+                document.documentElement.classList.remove('use-css-landscape');
+                updateHint();
+                return true;
+            }
+
+            updateHint();
+            return isNativeLandscape();
         }
 
         function bindGestureLock() {
@@ -46,26 +137,32 @@
             const retry = () => {
                 tryLockLandscape();
             };
-            ['touchstart', 'pointerdown', 'click'].forEach(eventName => {
+            ['touchstart', 'pointerdown', 'click'].forEach((eventName) => {
                 document.addEventListener(eventName, retry, { passive: true });
             });
+        }
+
+        function scheduleOrientationSync() {
+            setTimeout(() => {
+                tryLockLandscape();
+                updateHint();
+            }, 150);
         }
 
         function init() {
             if (!state.isMobile) return;
 
             document.documentElement.classList.add('mobile-device');
+            syncCssLandscape();
             updateHint();
             tryLockLandscape();
             bindGestureLock();
 
             window.addEventListener('resize', updateHint);
-            window.addEventListener('orientationchange', () => {
-                setTimeout(() => {
-                    tryLockLandscape();
-                    updateHint();
-                }, 150);
-            });
+            window.addEventListener('orientationchange', scheduleOrientationSync);
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', updateHint);
+            }
         }
 
         return {

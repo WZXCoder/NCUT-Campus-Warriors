@@ -1,4 +1,6 @@
 (function(global) {
+    const { getViewportWidth, getViewportHeight } = global.NCUTMap.utils;
+
     function findBuildingAtWorld(buildings, camera, wx, wy) {
         const tolerance = 3 / camera.state.zoom;
 
@@ -173,10 +175,10 @@
                     break;
                 case '+':
                 case '=':
-                    camera.zoomAtScreenPoint(window.innerWidth / 2, window.innerHeight / 2, config.ZOOM_STEP * 2);
+                    camera.zoomAtScreenPoint(getViewportWidth() / 2, getViewportHeight() / 2, config.ZOOM_STEP * 2);
                     break;
                 case '-':
-                    camera.zoomAtScreenPoint(window.innerWidth / 2, window.innerHeight / 2, -config.ZOOM_STEP * 2);
+                    camera.zoomAtScreenPoint(getViewportWidth() / 2, getViewportHeight() / 2, -config.ZOOM_STEP * 2);
                     break;
             }
         });

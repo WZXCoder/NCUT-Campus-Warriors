@@ -1,5 +1,5 @@
 (function(global) {
-    const { getCanvasDpr } = global.NCUTMap.utils;
+    const { getCanvasDpr, getViewportWidth, getViewportHeight } = global.NCUTMap.utils;
 
     function createMinimap(options) {
         const {
@@ -169,8 +169,8 @@
         }
 
         function drawCameraView(transform) {
-            const halfWidth = window.innerWidth / 2 / camera.state.zoom;
-            const halfHeight = window.innerHeight / 2 / camera.state.zoom;
+            const halfWidth = getViewportWidth() / 2 / camera.state.zoom;
+            const halfHeight = getViewportHeight() / 2 / camera.state.zoom;
             const topLeft = worldToMini(camera.state.x - halfWidth, camera.state.y - halfHeight, transform);
             const bottomRight = worldToMini(camera.state.x + halfWidth, camera.state.y + halfHeight, transform);
 

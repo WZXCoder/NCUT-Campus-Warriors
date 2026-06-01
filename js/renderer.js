@@ -1,5 +1,11 @@
 (function(global) {
-    const { lightenColor, darkenColor, getCanvasDpr } = global.NCUTMap.utils;
+    const {
+        lightenColor,
+        darkenColor,
+        getCanvasDpr,
+        getViewportWidth,
+        getViewportHeight,
+    } = global.NCUTMap.utils;
     const { assets } = global.NCUTMap;
 
     function createRenderer(options) {
@@ -30,7 +36,7 @@
 
         function getViewportWorldBounds(padding = 60) {
             const topLeft = camera.screenToWorld(-padding, -padding);
-            const bottomRight = camera.screenToWorld(window.innerWidth + padding, window.innerHeight + padding);
+            const bottomRight = camera.screenToWorld(getViewportWidth() + padding, getViewportHeight() + padding);
             return {
                 minX: Math.min(topLeft.x, bottomRight.x),
                 maxX: Math.max(topLeft.x, bottomRight.x),
@@ -52,17 +58,17 @@
 
         function resizeCanvas() {
             const dpr = getCanvasDpr();
-            canvas.width = window.innerWidth * dpr;
-            canvas.height = window.innerHeight * dpr;
-            canvas.style.width = window.innerWidth + 'px';
-            canvas.style.height = window.innerHeight + 'px';
+            canvas.width = getViewportWidth() * dpr;
+            canvas.height = getViewportHeight() * dpr;
+            canvas.style.width = getViewportWidth() + 'px';
+            canvas.style.height = getViewportHeight() + 'px';
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.scale(dpr, dpr);
         }
 
         function drawGrassBackground() {
             const topLeft = camera.screenToWorld(0, 0);
-            const bottomRight = camera.screenToWorld(window.innerWidth, window.innerHeight);
+            const bottomRight = camera.screenToWorld(getViewportWidth(), getViewportHeight());
             const startX = Math.floor(topLeft.x / grassTexture.size) * grassTexture.size;
             const startY = Math.floor(topLeft.y / grassTexture.size) * grassTexture.size;
             const endX = bottomRight.x + grassTexture.size;
@@ -74,7 +80,7 @@
             for (let wx = startX; wx < endX; wx += grassTexture.size) {
                 for (let wy = startY; wy < endY; wy += grassTexture.size) {
                     const s = camera.worldToScreen(wx, wy);
-                    if (s.x > window.innerWidth + tileScreenW || s.y > window.innerHeight + tileScreenW) continue;
+                    if (s.x > getViewportWidth() + tileScreenW || s.y > getViewportHeight() + tileScreenW) continue;
                     if (s.x + tileScreenW < -tileScreenW || s.y + tileScreenW < -tileScreenW) continue;
 
                     const nextS = camera.worldToScreen(wx + grassTexture.size, wy + grassTexture.size);
@@ -130,7 +136,7 @@
             const sh = e.y - s.y;
 
             if (sw < 0.5 && sh < 0.5) return;
-            if (s.x > window.innerWidth + 50 || s.y > window.innerHeight + 50 || e.x < -50 || e.y < -50) return;
+            if (s.x > getViewportWidth() + 50 || s.y > getViewportHeight() + 50 || e.x < -50 || e.y < -50) return;
 
             const blockScreenSize = blockSize * camera.state.zoom;
             const shadowOff = Math.max(2, camera.state.zoom * 4);
@@ -213,7 +219,7 @@
             const [rx, ry, rw, rh] = building.rects[0];
             const s = camera.worldToScreen(rx + rw / 2, ry + rh / 2);
 
-            if (s.x < -100 || s.x > window.innerWidth + 100 || s.y < -100 || s.y > window.innerHeight + 100) return;
+            if (s.x < -100 || s.x > getViewportWidth() + 100 || s.y < -100 || s.y > getViewportHeight() + 100) return;
 
             const fontSize = Math.max(8, Math.min(22, camera.state.zoom * 14));
 
@@ -242,7 +248,7 @@
                 const s = camera.worldToScreen(tree.x, tree.y);
                 const treeScreenSize = tree.size * camera.state.zoom;
                 if (treeScreenSize < 0.8) return;
-                if (s.x < -20 || s.x > window.innerWidth + 20 || s.y < -20 || s.y > window.innerHeight + 20) return;
+                if (s.x < -20 || s.x > getViewportWidth() + 20 || s.y < -20 || s.y > getViewportHeight() + 20) return;
 
                 const ts = Math.max(1.5, treeScreenSize);
                 ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -466,7 +472,7 @@
             if (camera.state.zoom < 0.2) return;
 
             const topLeft = camera.screenToWorld(0, 0);
-            const bottomRight = camera.screenToWorld(window.innerWidth, window.innerHeight);
+            const bottomRight = camera.screenToWorld(getViewportWidth(), getViewportHeight());
             const gridSize = 100;
             const startX = Math.floor(topLeft.x / gridSize) * gridSize;
             const startY = Math.floor(topLeft.y / gridSize) * gridSize;
@@ -478,7 +484,7 @@
                 const s = camera.worldToScreen(wx, topLeft.y);
                 ctx.beginPath();
                 ctx.moveTo(s.x, 0);
-                ctx.lineTo(s.x, window.innerHeight);
+                ctx.lineTo(s.x, getViewportHeight());
                 ctx.stroke();
             }
 
@@ -486,7 +492,7 @@
                 const s = camera.worldToScreen(topLeft.x, wy);
                 ctx.beginPath();
                 ctx.moveTo(0, s.y);
-                ctx.lineTo(window.innerWidth, s.y);
+                ctx.lineTo(getViewportWidth(), s.y);
                 ctx.stroke();
             }
         }
@@ -516,8 +522,8 @@
         }
 
         function render() {
-            const w = window.innerWidth;
-            const h = window.innerHeight;
+            const w = getViewportWidth();
+            const h = getViewportHeight();
 
             ctx.clearRect(0, 0, w, h);
             ctx.fillStyle = '#1a1a2e';

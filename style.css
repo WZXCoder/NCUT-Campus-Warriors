@@ -1215,6 +1215,26 @@ canvas {
     pointer-events: auto;
 }
 
+/* Android 浏览器无法系统横屏时，CSS 模拟横屏布局 */
+html.mobile-device.use-css-landscape {
+    position: fixed;
+    top: 0;
+    left: 100vw;
+    width: 100vh;
+    height: 100vw;
+    transform: rotate(90deg);
+    transform-origin: top left;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+html.mobile-device.use-css-landscape body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
 .landscape-hint {
     position: fixed;
     inset: 0;
