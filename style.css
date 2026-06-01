@@ -1215,42 +1215,27 @@ canvas {
     pointer-events: auto;
 }
 
-/* 移动端竖屏时强制旋转为横屏显示 */
+/* 移动端竖屏时 CSS 模拟横屏（系统无法锁定横屏时的兜底） */
 @media (max-width: 720px) and (orientation: portrait) {
-    html {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vh;
-        height: 100vw;
-        transform: rotate(90deg);
-        transform-origin: top left;
+    html.mobile-device.use-css-landscape {
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
         overflow: hidden;
         overscroll-behavior: none;
-    }
-    
-    body {
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        overscroll-behavior: none;
-    }
-    
-    /* 移动端竖屏时隐藏横屏提示 */
-    .landscape-hint {
-        display: none !important;
     }
 }
 
-/* Android 浏览器无法系统横屏时，CSS 模拟横屏布局 */
 html.mobile-device.use-css-landscape {
     position: fixed;
-    top: 0;
-    left: 0;
+    top: 50%;
+    left: 50%;
     width: 100vh;
     height: 100vw;
-    transform: rotate(90deg);
-    transform-origin: top left;
+    max-width: 100vh;
+    max-height: 100vw;
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center center;
     overflow: hidden;
     overscroll-behavior: none;
 }

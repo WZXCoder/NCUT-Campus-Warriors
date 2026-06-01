@@ -5,7 +5,18 @@
             || navigator.maxTouchPoints > 0;
     }
 
+    function isMobileDevice() {
+        return isCoarsePointer()
+            || (window.matchMedia('(max-width: 720px)').matches && navigator.maxTouchPoints > 0);
+    }
+
     function isPortrait() {
+        const type = screen.orientation?.type || '';
+        if (type.startsWith('portrait')) return true;
+        if (type.startsWith('landscape')) return false;
+        if (typeof window.orientation === 'number') {
+            return window.orientation === 0 || window.orientation === 180;
+        }
         return window.innerHeight > window.innerWidth;
     }
 
@@ -16,16 +27,17 @@
     function isNativeLandscape() {
         const type = screen.orientation?.type || '';
         if (type.includes('landscape')) return true;
+        if (type.includes('portrait')) return false;
         if (typeof window.orientation === 'number') {
             return Math.abs(window.orientation) === 90;
         }
-        return !isPortrait();
+        return window.innerWidth > window.innerHeight;
     }
 
     function createOrientationManager(options = {}) {
         const { hintEl } = options;
         const state = {
-            isMobile: isCoarsePointer(),
+            isMobile: isMobileDevice(),
         };
 
         function notifyLayoutChange() {
@@ -37,7 +49,6 @@
             const portrait = isPortrait();
             const nativeLandscape = isNativeLandscape();
             const shouldForce = state.isMobile
-                && isAndroidDevice()
                 && portrait
                 && !nativeLandscape;
 
@@ -52,16 +63,15 @@
             if (!state.isMobile) return;
 
             const portrait = isPortrait();
+            syncCssLandscape();
             const cssForced = document.documentElement.classList.contains('use-css-landscape');
-            const mediaQueryMatched = window.matchMedia('(max-width: 720px) and (orientation: portrait)').matches;
-            const showHint = portrait && !cssForced && !mediaQueryMatched;
+            const showHint = portrait && !cssForced;
 
             if (hintEl) {
                 hintEl.classList.toggle('hidden', !showHint);
             }
             document.documentElement.classList.toggle('mobile-portrait', portrait);
             document.documentElement.classList.toggle('mobile-landscape', !portrait);
-            syncCssLandscape();
         }
 
         async function lockWithModernApi() {
@@ -72,10 +82,19 @@
             for (const mode of candidates) {
                 try {
                     await orientation.lock(mode);
-                    return orientation.type?.includes('landscape') ?? true;
+                    if (orientation.type?.includes('landscape')) return true;
+                    if (!isPortrait()) return true;
                 } catch (_) {
                     // 需用户手势或全屏时继续尝试
                 }
+            }
+            return false;
+        }
+
+        function clearCssLandscapeIfNative() {
+            if (isNativeLandscape() || !isPortrait()) {
+                document.documentElement.classList.remove('use-css-landscape');
+                return true;
             }
             return false;
         }
@@ -111,22 +130,22 @@
             if (!state.isMobile) return false;
 
             if (await lockWithModernApi()) {
-                document.documentElement.classList.remove('use-css-landscape');
+                clearCssLandscapeIfNative();
                 updateHint();
-                return true;
+                return isNativeLandscape() || !isPortrait();
             }
 
             if (lockWithLegacyApi()) {
-                document.documentElement.classList.remove('use-css-landscape');
+                clearCssLandscapeIfNative();
                 updateHint();
-                return true;
+                return isNativeLandscape() || !isPortrait();
             }
 
             await requestFullscreenIfNeeded();
             if (await lockWithModernApi() || lockWithLegacyApi()) {
-                document.documentElement.classList.remove('use-css-landscape');
+                clearCssLandscapeIfNative();
                 updateHint();
-                return true;
+                return isNativeLandscape() || !isPortrait();
             }
 
             updateHint();
@@ -198,7 +217,7 @@
         let joystickRadius = 56;
 
         const state = {
-            isMobile: isCoarsePointer(),
+            isMobile: isMobileDevice(),
         };
 
         function isInGame() {
