@@ -53,7 +53,8 @@
 
             const portrait = isPortrait();
             const cssForced = document.documentElement.classList.contains('use-css-landscape');
-            const showHint = portrait && !cssForced;
+            const mediaQueryMatched = window.matchMedia('(max-width: 720px) and (orientation: portrait)').matches;
+            const showHint = portrait && !cssForced && !mediaQueryMatched;
 
             if (hintEl) {
                 hintEl.classList.toggle('hidden', !showHint);
