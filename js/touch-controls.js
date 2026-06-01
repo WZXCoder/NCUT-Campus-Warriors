@@ -13,41 +13,99 @@
         const { hintEl } = options;
         const state = {
             isMobile: isCoarsePointer(),
+            lockSucceeded: false,
+            forcedLandscape: false,
         };
+
+        function applyForcedLandscape() {
+            if (state.forcedLandscape || !isPortrait()) return;
+            state.forcedLandscape = true;
+            document.documentElement.classList.add('mobile-force-landscape');
+        }
+
+        function clearForcedLandscape() {
+            if (!state.forcedLandscape) return;
+            state.forcedLandscape = false;
+            document.documentElement.classList.remove('mobile-force-landscape');
+        }
 
         function updateHint() {
             if (!hintEl || !state.isMobile) return;
             const portrait = isPortrait();
-            hintEl.classList.toggle('hidden', !portrait);
-            document.documentElement.classList.toggle('mobile-portrait', portrait);
-            document.documentElement.classList.toggle('mobile-landscape', !portrait);
+            const showHint = portrait && !state.forcedLandscape && !state.lockSucceeded;
+            hintEl.classList.toggle('hidden', !showHint);
+            document.documentElement.classList.toggle('mobile-portrait', portrait && !state.forcedLandscape);
+            document.documentElement.classList.toggle('mobile-landscape', !portrait || state.forcedLandscape);
         }
 
-        async function tryLockLandscape() {
-            if (!state.isMobile) return false;
-            const orientation = screen.orientation;
-            if (!orientation?.lock) return false;
+        async function requestFullscreenIfNeeded() {
+            if (!document.fullscreenEnabled || document.fullscreenElement) return true;
+            try {
+                await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
 
-            const candidates = ['landscape-primary', 'landscape', 'landscape-secondary'];
-            for (const mode of candidates) {
-                try {
-                    await orientation.lock(mode);
-                    updateHint();
-                    return orientation.type?.includes('landscape') ?? true;
-                } catch (_) {
-                    // 部分浏览器需用户手势或全屏，继续尝试下一种
+        async function tryLockLandscape(options = {}) {
+            const { allowFullscreen = true } = options;
+            if (!state.isMobile) return false;
+
+            if (!isPortrait()) {
+                state.lockSucceeded = true;
+                clearForcedLandscape();
+                updateHint();
+                return true;
+            }
+
+            if (allowFullscreen) {
+                await requestFullscreenIfNeeded();
+            }
+
+            const orientation = screen.orientation;
+            if (orientation?.lock) {
+                const candidates = ['landscape-primary', 'landscape', 'landscape-secondary'];
+                for (const mode of candidates) {
+                    try {
+                        await orientation.lock(mode);
+                        state.lockSucceeded = true;
+                        clearForcedLandscape();
+                        updateHint();
+                        return true;
+                    } catch (_) {
+                        // 部分浏览器需用户手势或全屏，继续尝试下一种
+                    }
                 }
             }
+
+            state.lockSucceeded = false;
+            applyForcedLandscape();
+            updateHint();
             return false;
+        }
+
+        function syncOrientationState() {
+            if (!state.isMobile) return;
+
+            if (!isPortrait()) {
+                state.lockSucceeded = true;
+                clearForcedLandscape();
+            } else if (!state.lockSucceeded) {
+                applyForcedLandscape();
+            }
+            updateHint();
         }
 
         function bindGestureLock() {
             if (!state.isMobile) return;
+
             const retry = () => {
-                tryLockLandscape();
+                tryLockLandscape({ allowFullscreen: true });
             };
+
             ['touchstart', 'pointerdown', 'click'].forEach(eventName => {
-                document.addEventListener(eventName, retry, { passive: true });
+                document.addEventListener(eventName, retry, { passive: true, capture: true });
             });
         }
 
@@ -55,16 +113,23 @@
             if (!state.isMobile) return;
 
             document.documentElement.classList.add('mobile-device');
-            updateHint();
-            tryLockLandscape();
+            syncOrientationState();
+            tryLockLandscape({ allowFullscreen: false });
             bindGestureLock();
 
-            window.addEventListener('resize', updateHint);
+            window.addEventListener('resize', syncOrientationState);
             window.addEventListener('orientationchange', () => {
                 setTimeout(() => {
-                    tryLockLandscape();
-                    updateHint();
-                }, 150);
+                    syncOrientationState();
+                    if (isPortrait() && !state.lockSucceeded) {
+                        tryLockLandscape({ allowFullscreen: false });
+                    }
+                }, 120);
+            });
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    setTimeout(syncOrientationState, 80);
+                }
             });
         }
 
@@ -72,7 +137,7 @@
             state,
             init,
             tryLockLandscape,
-            updateHint,
+            updateHint: syncOrientationState,
             isPortrait,
         };
     }

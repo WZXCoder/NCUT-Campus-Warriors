@@ -9,9 +9,21 @@
     <meta name="screen-orientation" content="landscape">
     <meta name="x5-orientation" content="landscape">
     <meta name="x5-fullscreen" content="true">
+    <meta name="full-screen" content="yes">
+    <meta name="browsermode" content="application">
+    <script>
+        (function () {
+            var mobile = window.matchMedia('(pointer: coarse)').matches
+                || window.matchMedia('(hover: none)').matches
+                || navigator.maxTouchPoints > 0;
+            if (mobile && window.innerHeight > window.innerWidth) {
+                document.documentElement.classList.add('mobile-device', 'mobile-force-landscape');
+            }
+        })();
+    </script>
     <link rel="manifest" href="manifest.webmanifest">
     <title>NCUT校园勇士</title>
-    <link rel="stylesheet" href="style.css?v=20260628">
+    <link rel="stylesheet" href="style.css?v=20260702">
 </head>
 <body>
     <div id="landscape-hint" class="landscape-hint hidden" aria-live="polite">
@@ -185,7 +197,7 @@
     <script defer src="js/renderer.js?v=20260630"></script>
     <script defer src="js/minimap.js?v=20260630"></script>
     <script defer src="js/controls.js"></script>
-    <script defer src="js/touch-controls.js?v=20260620"></script>
+    <script defer src="js/touch-controls.js?v=20260702"></script>
     <script defer src="js/audio.js?v=20260628"></script>
     <script defer src="js/goldrush.js?v=20260701"></script>
     <script defer src="js/survival.js?v=20260701"></script>
