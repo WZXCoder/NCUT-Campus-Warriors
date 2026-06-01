@@ -38,6 +38,13 @@ body.grabbing {
     cursor: grabbing;
 }
 
+#app {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+}
+
 .hidden {
     display: none !important;
 }
@@ -1215,7 +1222,7 @@ canvas {
     pointer-events: auto;
 }
 
-/* 游戏画面层：仅对 #game-stage 做 CSS 横屏，登录/大厅/弹窗保持正常竖屏滚动 */
+/* 游戏画面层（移动端整页横屏见下方 @media portrait 规则） */
 #game-stage {
     position: fixed;
     inset: 0;
@@ -1230,18 +1237,6 @@ canvas {
 
 #game-stage.hidden {
     display: none !important;
-}
-
-html.mobile-device #game-stage.css-landscape {
-    top: 50%;
-    left: 50%;
-    width: 100vh;
-    height: 100vw;
-    max-width: 100vh;
-    max-height: 100vw;
-    inset: auto;
-    transform: translate(-50%, -50%) rotate(90deg);
-    transform-origin: center center;
 }
 
 /* 移动端登录/大厅/弹窗：保证可滚动与输入 */
@@ -1303,6 +1298,84 @@ html.mobile-device .modal-panel {
 @keyframes rotate-hint-spin {
     0%, 100% { transform: rotate(0deg); }
     45% { transform: rotate(90deg); }
+}
+
+/* 移动端竖屏：CSS 强制横屏（微信 / 安卓等无法锁定屏幕方向时） */
+@media (max-width: 720px) and (orientation: portrait) {
+    html.mobile-device body {
+        width: 100vw;
+        width: 100dvw;
+        height: 100vh;
+        height: 100dvh;
+        min-height: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    html.mobile-device #app {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        width: 100vh;
+        width: 100dvh;
+        height: 100vw;
+        height: 100dvw;
+        max-width: none;
+        min-height: 0;
+        padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+        transform: translate(-50%, -50%) rotate(90deg);
+        transform-origin: center;
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    html.mobile-device .auth-container {
+        padding: 12px max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left));
+    }
+
+    html.mobile-device .auth-box {
+        max-width: min(400px, 88dvh);
+        max-height: min(92dvw, 560px);
+    }
+
+    html.mobile-device .lobby-view {
+        padding: 12px max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left));
+    }
+
+    html.mobile-device .minimap {
+        width: min(132px, 22dvh);
+        height: min(132px, 22dvh);
+    }
+
+    html.mobile-device .minimap.expanded {
+        width: min(calc(100dvh - 24px), calc(100dvw - 24px));
+        height: min(calc(100dvh - 24px), calc(100dvw - 24px));
+        max-height: min(calc(100dvw - 24px), calc(100dvh - 24px));
+    }
+
+    html.mobile-device .mobile-joystick {
+        width: clamp(112px, 22dvh, 148px);
+        height: clamp(112px, 22dvh, 148px);
+    }
+
+    html.mobile-device .mobile-btn-attack {
+        width: clamp(68px, 14dvh, 84px);
+        height: clamp(68px, 14dvh, 84px);
+        font-size: clamp(22px, 4.5dvh, 28px);
+    }
+
+    html.mobile-device .mobile-btn-pickup,
+    html.mobile-device .mobile-btn-skill,
+    html.mobile-device .mobile-btn-extract {
+        width: clamp(48px, 10dvh, 58px);
+        height: clamp(48px, 10dvh, 58px);
+        font-size: clamp(16px, 3.2dvh, 20px);
+    }
+
+    html.mobile-device .modal-panel {
+        max-width: min(520px, 92dvh);
+        max-height: min(86dvw, 86dvh);
+    }
 }
 
 .mobile-joystick {
