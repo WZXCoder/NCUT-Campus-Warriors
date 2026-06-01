@@ -11,57 +11,53 @@
 
     function createOrientationManager(options = {}) {
         const { hintEl } = options;
+        const enterBtn = document.getElementById('landscape-enter-btn');
+        const hintText = document.getElementById('landscape-hint-text');
         const state = {
             isMobile: isCoarsePointer(),
             lockSucceeded: false,
-            forcedLandscape: false,
         };
 
-        function applyForcedLandscape() {
-            if (state.forcedLandscape || !isPortrait()) return;
-            state.forcedLandscape = true;
-            document.documentElement.classList.add('mobile-force-landscape');
+        function notifyResize() {
+            window.dispatchEvent(new Event('resize'));
         }
 
-        function clearForcedLandscape() {
-            if (!state.forcedLandscape) return;
-            state.forcedLandscape = false;
-            document.documentElement.classList.remove('mobile-force-landscape');
+        function isLandscapeReady() {
+            return !isPortrait() || state.lockSucceeded;
         }
 
         function updateHint() {
-            if (!hintEl || !state.isMobile) return;
-            const portrait = isPortrait();
-            const showHint = portrait && !state.forcedLandscape && !state.lockSucceeded;
-            hintEl.classList.toggle('hidden', !showHint);
-            document.documentElement.classList.toggle('mobile-portrait', portrait && !state.forcedLandscape);
-            document.documentElement.classList.toggle('mobile-landscape', !portrait || state.forcedLandscape);
+            if (!state.isMobile) return;
+
+            const ready = isLandscapeReady();
+            if (hintEl) {
+                hintEl.classList.toggle('hidden', ready);
+            }
+            document.documentElement.classList.toggle('mobile-portrait', !ready);
+            document.documentElement.classList.toggle('mobile-landscape', ready);
+            document.body.classList.toggle('mobile-orientation-pending', !ready);
         }
 
         async function requestFullscreenIfNeeded() {
-            if (!document.fullscreenEnabled || document.fullscreenElement) return true;
+            if (!document.fullscreenEnabled || document.fullscreenElement) return;
             try {
                 await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-                return true;
             } catch (_) {
-                return false;
+                // 部分浏览器不支持或用户拒绝
             }
         }
 
-        async function tryLockLandscape(options = {}) {
-            const { allowFullscreen = true } = options;
+        async function tryLockLandscape() {
             if (!state.isMobile) return false;
 
             if (!isPortrait()) {
                 state.lockSucceeded = true;
-                clearForcedLandscape();
                 updateHint();
+                notifyResize();
                 return true;
             }
 
-            if (allowFullscreen) {
-                await requestFullscreenIfNeeded();
-            }
+            await requestFullscreenIfNeeded();
 
             const orientation = screen.orientation;
             if (orientation?.lock) {
@@ -70,65 +66,48 @@
                     try {
                         await orientation.lock(mode);
                         state.lockSucceeded = true;
-                        clearForcedLandscape();
                         updateHint();
+                        notifyResize();
                         return true;
                     } catch (_) {
-                        // 部分浏览器需用户手势或全屏，继续尝试下一种
+                        // 需用户手势或浏览器不支持，继续尝试
                     }
                 }
             }
 
-            state.lockSucceeded = false;
-            applyForcedLandscape();
-            updateHint();
-            return false;
-        }
-
-        function syncOrientationState() {
-            if (!state.isMobile) return;
-
-            if (!isPortrait()) {
-                state.lockSucceeded = true;
-                clearForcedLandscape();
-            } else if (!state.lockSucceeded) {
-                applyForcedLandscape();
+            if (hintText) {
+                hintText.textContent = '无法自动横屏，请手动旋转设备后继续';
             }
             updateHint();
-        }
-
-        function bindGestureLock() {
-            if (!state.isMobile) return;
-
-            const retry = () => {
-                tryLockLandscape({ allowFullscreen: true });
-            };
-
-            ['touchstart', 'pointerdown', 'click'].forEach(eventName => {
-                document.addEventListener(eventName, retry, { passive: true, capture: true });
-            });
+            notifyResize();
+            return false;
         }
 
         function init() {
             if (!state.isMobile) return;
 
             document.documentElement.classList.add('mobile-device');
-            syncOrientationState();
-            tryLockLandscape({ allowFullscreen: false });
-            bindGestureLock();
+            updateHint();
 
-            window.addEventListener('resize', syncOrientationState);
+            enterBtn?.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                tryLockLandscape();
+            });
+
+            window.addEventListener('resize', updateHint);
             window.addEventListener('orientationchange', () => {
                 setTimeout(() => {
-                    syncOrientationState();
-                    if (isPortrait() && !state.lockSucceeded) {
-                        tryLockLandscape({ allowFullscreen: false });
+                    if (!isPortrait()) {
+                        state.lockSucceeded = true;
                     }
-                }, 120);
+                    updateHint();
+                    notifyResize();
+                }, 150);
             });
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) {
-                    setTimeout(syncOrientationState, 80);
+                    setTimeout(updateHint, 80);
                 }
             });
         }
@@ -137,7 +116,7 @@
             state,
             init,
             tryLockLandscape,
-            updateHint: syncOrientationState,
+            updateHint,
             isPortrait,
         };
     }
