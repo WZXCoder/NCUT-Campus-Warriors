@@ -1215,36 +1215,57 @@ canvas {
     pointer-events: auto;
 }
 
-/* 移动端竖屏时 CSS 模拟横屏（系统无法锁定横屏时的兜底） */
-@media (max-width: 720px) and (orientation: portrait) {
-    html.mobile-device.use-css-landscape {
-        width: 100vw;
-        height: 100vh;
-        height: 100dvh;
-        overflow: hidden;
-        overscroll-behavior: none;
-    }
+/* 游戏画面层：仅对 #game-stage 做 CSS 横屏，登录/大厅/弹窗保持正常竖屏滚动 */
+#game-stage {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    overflow: hidden;
+    pointer-events: none;
 }
 
-html.mobile-device.use-css-landscape {
-    position: fixed;
+#game-stage:not(.hidden) {
+    pointer-events: auto;
+}
+
+#game-stage.hidden {
+    display: none !important;
+}
+
+html.mobile-device #game-stage.css-landscape {
     top: 50%;
     left: 50%;
     width: 100vh;
     height: 100vw;
     max-width: 100vh;
     max-height: 100vw;
+    inset: auto;
     transform: translate(-50%, -50%) rotate(90deg);
     transform-origin: center center;
-    overflow: hidden;
-    overscroll-behavior: none;
 }
 
-html.mobile-device.use-css-landscape body {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    overscroll-behavior: none;
+/* 移动端登录/大厅/弹窗：保证可滚动与输入 */
+html.mobile-device .auth-container {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+html.mobile-device .lobby-view {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+html.mobile-device .modal-root {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    align-items: flex-start;
+}
+
+html.mobile-device .modal-panel {
+    max-height: min(86vh, 86dvh);
+    -webkit-overflow-scrolling: touch;
 }
 
 .landscape-hint {

@@ -34,10 +34,15 @@
         return window.innerWidth > window.innerHeight;
     }
 
+    function getGameStage() {
+        return document.getElementById('game-stage');
+    }
+
     function createOrientationManager(options = {}) {
         const { hintEl } = options;
         const state = {
             isMobile: isMobileDevice(),
+            gameLandscapeEnabled: false,
         };
 
         function notifyLayoutChange() {
@@ -45,15 +50,18 @@
         }
 
         function syncCssLandscape() {
-            const root = document.documentElement;
+            const stage = getGameStage();
+            if (!stage) return;
+
             const portrait = isPortrait();
             const nativeLandscape = isNativeLandscape();
             const shouldForce = state.isMobile
+                && state.gameLandscapeEnabled
                 && portrait
                 && !nativeLandscape;
 
-            const hadForce = root.classList.contains('use-css-landscape');
-            root.classList.toggle('use-css-landscape', shouldForce);
+            const hadForce = stage.classList.contains('css-landscape');
+            stage.classList.toggle('css-landscape', shouldForce);
             if (hadForce !== shouldForce) {
                 notifyLayoutChange();
             }
@@ -64,14 +72,27 @@
 
             const portrait = isPortrait();
             syncCssLandscape();
-            const cssForced = document.documentElement.classList.contains('use-css-landscape');
-            const showHint = portrait && !cssForced;
+            const cssForced = getGameStage()?.classList.contains('css-landscape');
+            const showHint = state.gameLandscapeEnabled && portrait && !cssForced;
 
             if (hintEl) {
                 hintEl.classList.toggle('hidden', !showHint);
             }
             document.documentElement.classList.toggle('mobile-portrait', portrait);
             document.documentElement.classList.toggle('mobile-landscape', !portrait);
+        }
+
+        function setGameLandscapeEnabled(enabled) {
+            state.gameLandscapeEnabled = !!enabled;
+            const stage = getGameStage();
+            if (stage) {
+                stage.setAttribute('aria-hidden', enabled ? 'false' : 'true');
+            }
+            syncCssLandscape();
+            updateHint();
+            if (enabled) {
+                tryLockLandscape();
+            }
         }
 
         async function lockWithModernApi() {
@@ -92,8 +113,10 @@
         }
 
         function clearCssLandscapeIfNative() {
+            const stage = getGameStage();
+            if (!stage) return false;
             if (isNativeLandscape() || !isPortrait()) {
-                document.documentElement.classList.remove('use-css-landscape');
+                stage.classList.remove('css-landscape');
                 return true;
             }
             return false;
@@ -190,6 +213,7 @@
             init,
             tryLockLandscape,
             updateHint,
+            setGameLandscapeEnabled,
             isPortrait,
         };
     }

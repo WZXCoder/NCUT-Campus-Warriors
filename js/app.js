@@ -36,6 +36,7 @@
         const tooltipName = tooltip.querySelector('.tt-name');
         const tooltipCoords = tooltip.querySelector('.tt-coords');
         const authContainer = document.getElementById('auth-container');
+        const gameStage = document.getElementById('game-stage');
         const userPanel = document.getElementById('user-panel');
         const logoutBtn = document.getElementById('logout-btn');
         const lobbyView = document.getElementById('lobby-view');
@@ -154,12 +155,15 @@
         });
 
         function setView(viewName) {
+            const inGame = ['visit', 'goldrush', 'survival'].includes(viewName);
             authContainer.classList.toggle('hidden', viewName !== 'auth');
             lobbyView.classList.toggle('hidden', viewName !== 'lobby');
-            canvas.classList.toggle('hidden', !['visit', 'goldrush', 'survival'].includes(viewName));
-            gameHud.classList.toggle('hidden', !['visit', 'goldrush', 'survival'].includes(viewName));
+            gameStage?.classList.toggle('hidden', !inGame);
+            canvas.classList.toggle('hidden', !inGame);
+            gameHud.classList.toggle('hidden', !inGame);
             userPanel.classList.add('hidden');
             tooltip.classList.remove('visible');
+            mobileOrientation.setGameLandscapeEnabled(inGame);
 
             if (viewName === 'lobby') {
                 minimap.hide();
@@ -179,8 +183,6 @@
                 mobileControls.setGameMode(null);
             }
 
-            mobileOrientation.tryLockLandscape();
-            mobileOrientation.updateHint();
         }
 
         async function refreshGameData() {

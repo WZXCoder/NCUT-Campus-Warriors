@@ -45,7 +45,7 @@
     }
 
     function usesCssLandscape() {
-        return document.documentElement.classList.contains('use-css-landscape');
+        return document.getElementById('game-stage')?.classList.contains('css-landscape') ?? false;
     }
 
     function getViewportWidth() {
