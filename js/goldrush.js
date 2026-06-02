@@ -94,6 +94,7 @@
             lastHudPush: 0,
             lastHudSnapshot: '',
             lastMaintainCheck: 0,
+            lastHostileSeedAt: 0,
             lastNpcBroadcast: 0,
             lastSyncedNpcs: new Map(),
             npcBroadcastMode: false,
@@ -275,7 +276,7 @@
                 state.droppedItems.push({ itemId: pickWeightedGem().id, x: target.x, y: target.y });
             }
             state.npcs = state.npcs.filter(npc => npc.id !== target.id);
-            void maintainHostiles();
+            maintainHostiles();
         }
 
         function buildSharedNpcRow() {
@@ -376,6 +377,7 @@
         }
 
         function syncNpcsFromSharedRows(rows) {
+            if (!state.useSharedNpcs) return;
             const alive = (rows || []).filter(row => row.hp > 0);
             if (state.isRoomHost) {
                 const rowById = new Map(alive.map(row => [row.id, row]));
@@ -577,17 +579,30 @@
             return randomPoint();
         }
 
+        function npcSpawnPoint() {
+            const px = player.state.x;
+            const py = player.state.y;
+            for (let i = 0; i < 48; i++) {
+                const point = {
+                    x: randomBetween(px - 480, px + 480),
+                    y: randomBetween(py - 480, py + 480),
+                };
+                point.x = Math.max(bounds.minX + 40, Math.min(bounds.maxX - 40, point.x));
+                point.y = Math.max(bounds.minY + 40, Math.min(bounds.maxY - 40, point.y));
+                if (distance(point, { x: px, y: py }) > 100) return point;
+            }
+            return teachingSpawnPoint();
+        }
+
         function getAliveHostileCount() {
             return state.npcs.filter(npc => !npc.isAlly && npc.hp > 0).length;
         }
 
-        function spawnNpc() {
-            if (getAliveHostileCount() >= MAX_HOSTILES) return;
-            const point = teachingSpawnPoint();
+        function buildLocalNpc(point) {
             const name = assets.npcNames[Math.floor(Math.random() * assets.npcNames.length)];
             const image = assets.getNpcImage(Math.floor(Math.random() * assets.npcImages.length));
             const hp = randomInt(10, 50);
-            state.npcs.push(skillCtrl ? skillCtrl.modifySpawnedMonster({
+            const npc = {
                 id: 'npc_' + Date.now().toString(36) + Math.random().toString(36).slice(2),
                 name,
                 x: point.x,
@@ -600,20 +615,14 @@
                 attackInterval: randomInt(400, 900),
                 lastAttackAt: 0,
                 image,
-            }) : {
-                id: 'npc_' + Date.now().toString(36) + Math.random().toString(36).slice(2),
-                name,
-                x: point.x,
-                y: point.y,
-                hp,
-                maxHp: hp,
-                attack: randomInt(3, 10),
-                attackRange: randomBetween(10, 20),
-                speed: randomEntityMoveStep(),
-                attackInterval: randomInt(400, 900),
-                lastAttackAt: 0,
-                image,
-            });
+            };
+            return skillCtrl ? skillCtrl.modifySpawnedMonster(npc) : npc;
+        }
+
+        function spawnNpc() {
+            if (getAliveHostileCount() >= MAX_HOSTILES) return;
+            const point = npcSpawnPoint();
+            state.npcs.push(buildLocalNpc(point));
         }
 
         function disableSharedNpcs() {
@@ -622,24 +631,15 @@
             multiplayer?.stopSharedNpcs?.();
         }
 
-        async function maintainHostiles() {
-            if (state.useSharedNpcs) {
-                if (multiplayer?.ensureSharedNpcs) {
-                    await multiplayer.ensureSharedNpcs(roomId, buildSharedNpcRow, MAX_HOSTILES, {
-                        isHost: state.isRoomHost,
-                        allowSeedWhenEmpty: true,
-                    });
-                }
-                if (multiplayer?.refreshSharedNpcs) {
-                    await multiplayer.refreshSharedNpcs(roomId);
-                }
-                if (getAliveHostileCount() === 0) {
-                    console.warn('[goldrush] shared npcs empty, fallback to local npcs');
-                    disableSharedNpcs();
-                } else {
-                    return;
-                }
+        function seedLocalHostiles() {
+            disableSharedNpcs();
+            while (getAliveHostileCount() < MAX_HOSTILES) {
+                spawnNpc();
             }
+        }
+
+        function maintainHostiles() {
+            if (state.useSharedNpcs) return;
             while (getAliveHostileCount() < MAX_HOSTILES) {
                 spawnNpc();
             }
@@ -684,11 +684,9 @@
             maintainCollectible();
             maintainEquipmentDrops();
 
-            const wantSharedNpcs = useSharedNpcsOption !== false
-                && Boolean(roomId && multiplayer?.initSharedNpcs);
             state.useSharedNpcs = false;
             state.npcBroadcastMode = false;
-            if (wantSharedNpcs) {
+            if (useSharedNpcsOption === true && roomId && multiplayer?.initSharedNpcs) {
                 try {
                     state.isRoomHost = await multiplayer.isRoomHost(roomId, userId);
                     const npcResult = await multiplayer.initSharedNpcs({
@@ -698,18 +696,28 @@
                         onChange: rows => syncNpcsFromSharedRows(rows),
                         useBroadcast: true,
                     });
-                    if (!npcResult?.ok) {
-                        disableSharedNpcs();
-                    } else {
+                    if (npcResult?.ok) {
                         state.useSharedNpcs = true;
                         state.npcBroadcastMode = npcResult.broadcast !== false;
+                        await multiplayer.ensureSharedNpcs?.(roomId, buildSharedNpcRow, MAX_HOSTILES, {
+                            isHost: state.isRoomHost,
+                            allowSeedWhenEmpty: true,
+                        });
+                        await multiplayer.refreshSharedNpcs?.(roomId);
+                        if (getAliveHostileCount() === 0) {
+                            console.warn('[goldrush] shared npcs empty, fallback to local npcs');
+                            seedLocalHostiles();
+                        }
+                    } else {
+                        seedLocalHostiles();
                     }
                 } catch (error) {
                     console.error('[goldrush] shared npc init failed:', error);
-                    disableSharedNpcs();
+                    seedLocalHostiles();
                 }
+            } else {
+                seedLocalHostiles();
             }
-            await maintainHostiles();
             pushHud(true);
         }
 
@@ -989,6 +997,10 @@
             if (now - state.lastMaintainCheck > 500) {
                 state.lastMaintainCheck = now;
                 maintainEquipmentDrops();
+            }
+            if (!state.useSharedNpcs && now - (state.lastHostileSeedAt || 0) > 2500) {
+                state.lastHostileSeedAt = now;
+                maintainHostiles();
             }
             const playerPoint = { x: player.state.x, y: player.state.y };
             updateSpeedDurability();

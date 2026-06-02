@@ -509,8 +509,7 @@
                 }
             }
 
-            const useSharedGoldRushNpcs = Boolean(roomId && goldRushPlayerCount > 1);
-
+            // 摸金 NPC 固定本地刷 5 只（不依赖 game_room_npcs，避免单人进房无怪）
             appState.currentRun = goldrush.createGoldRush({
                 player,
                 camera,
@@ -523,18 +522,10 @@
                 baseBackpackUsage,
                 roomId,
                 userId: user?.id,
-                useSharedNpcs: useSharedGoldRushNpcs,
-                multiplayer: useSharedGoldRushNpcs ? {
+                useSharedNpcs: false,
+                multiplayer: roomId && realtime?.isEnabled?.() ? {
                     broadcast: (event, payload) => realtime.broadcast(event, payload),
                     isRoomHost: (rid, uid) => realtime.isRoomHost(rid, uid),
-                    initSharedNpcs: opts => realtime.initSharedNpcs(opts),
-                    ensureSharedNpcs: (rid, builder, max, opts) => realtime.ensureSharedNpcs(rid, builder, max, opts),
-                    refreshSharedNpcs: rid => realtime.refreshSharedNpcs(rid),
-                    stopSharedNpcs: () => realtime.stopSharedNpcs(),
-                    updateSharedNpcHp: (id, hp) => realtime.updateSharedNpcHp(id, hp),
-                    deleteSharedNpc: id => realtime.deleteSharedNpc(id),
-                    syncSharedNpcBatch: npcs => realtime.syncSharedNpcBatch(npcs),
-                    broadcastSharedNpcState: npcs => realtime.broadcastSharedNpcState(npcs),
                 } : null,
                 onLeaveRoom: status => {
                     const currentUser = store.getUser();
