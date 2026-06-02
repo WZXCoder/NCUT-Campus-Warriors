@@ -186,8 +186,14 @@
         }
 
         async function refreshGameData() {
-            appState.profile = await store.refreshProfile();
-            appState.inventory = await store.getInventory();
+            try {
+                appState.profile = await store.refreshProfile();
+                appState.inventory = await store.getInventory();
+            } catch (error) {
+                console.warn('[lobby] refreshGameData partial fail:', error);
+                appState.profile = appState.profile || store.getUser();
+                appState.inventory = appState.inventory || [];
+            }
             ui.renderLobby(appState.profile, appState.inventory, store.usingSupabase());
             setPlayerSkin();
         }
@@ -792,31 +798,46 @@
         }
 
         async function handleLogin(username, password) {
+            const errEl = document.getElementById('login-error');
+            errEl.textContent = '';
             try {
                 const { user } = await auth.signIn(username, password);
-                if (user) {
+                if (!user) {
+                    errEl.textContent = '登录失败：未获取到用户档案';
+                    return;
+                }
+                try {
                     await showLobby();
+                } catch (lobbyErr) {
+                    console.error(lobbyErr);
+                    errEl.textContent = `已登录，但进入大厅失败：${lobbyErr.message}`;
                 }
             } catch (error) {
-                document.getElementById('login-error').textContent = error.message;
+                errEl.textContent = error.message || String(error);
             }
         }
 
         async function handleRegister(email, username, password) {
+            const errEl = document.getElementById('register-error');
+            errEl.textContent = '';
             try {
                 if (password.length < 6) {
                     throw new Error('密码至少需要6位');
                 }
                 const { user, pendingEmailVerification } = await auth.signUp(email, password, { username });
                 if (pendingEmailVerification) {
-                    document.getElementById('register-error').textContent = '已发送验证邮件，请先去邮箱完成验证后再登录。';
+                    errEl.textContent = '已发送验证邮件，请先去邮箱点「Confirm」完成验证，再用邮箱+密码登录。';
                     return;
                 }
                 if (user) {
-                    await showLobby();
+                    try {
+                        await showLobby();
+                    } catch (lobbyErr) {
+                        errEl.textContent = `注册成功，但进入大厅失败：${lobbyErr.message}`;
+                    }
                 }
             } catch (error) {
-                document.getElementById('register-error').textContent = error.message;
+                errEl.textContent = error.message || String(error);
             }
         }
 

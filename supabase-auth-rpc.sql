@@ -1,7 +1,44 @@
--- 在 Supabase SQL Editor 执行一次（不删数据）
--- 用数据库 RPC 完成登录/建档案，不依赖 Edge Function 是否部署成功
+-- 在 Supabase SQL Editor 执行（可重复执行，不删数据）
+-- 解决：登录成功但进大厅失败 / permission denied / 注册后无档案
 
--- 1) 老账号：用户名+密码登录（服务端校验，不暴露 password_hash）
+-- 0) 确保基础读取权限
+grant usage on schema public to anon, authenticated;
+grant select on all tables in schema public to anon, authenticated;
+grant insert, update, delete on table public.inventories to anon, authenticated;
+
+alter table public.users enable row level security;
+alter table public.users no force row level security;
+
+drop policy if exists "users public select" on public.users;
+create policy "users public select" on public.users
+  for select to anon, authenticated using (true);
+
+drop policy if exists "users auth update own" on public.users;
+create policy "users auth update own" on public.users
+  for update to authenticated
+  using (auth_user_id = auth.uid())
+  with check (auth_user_id = auth.uid());
+
+-- 1) 内部：确保新手背包（服务端写入，不走前端 RLS）
+create or replace function public._ensure_starter_inventory(p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (select 1 from public.inventories where user_id = p_user_id limit 1) then
+    return;
+  end if;
+  insert into public.inventories (user_id, item_id, quantity) values
+    (p_user_id, 'weapon_knife', 1),
+    (p_user_id, 'tool_shovel', 1),
+    (p_user_id, 'tool_boots', 1)
+  on conflict (user_id, item_id) do nothing;
+end;
+$$;
+
+-- 2) 老账号：用户名+密码登录（密码校验与前端 hashPassword 一致）
 create or replace function public.legacy_login(p_username text, p_password text)
 returns jsonb
 language plpgsql
@@ -22,9 +59,14 @@ begin
   end if;
 
   v_expected := encode(convert_to(trim(p_username) || ':' || p_password, 'UTF8'), 'base64');
-  if v_user.password_hash is distinct from v_expected then
+  if v_user.password_hash is distinct from v_expected and v_user.password_hash is distinct from '__AUTH__' then
     raise exception '用户名或密码错误';
   end if;
+  if v_user.password_hash = '__AUTH__' then
+    raise exception '该账号已绑定邮箱，请使用邮箱+密码登录';
+  end if;
+
+  perform public._ensure_starter_inventory(v_user.id);
 
   return jsonb_build_object(
     'id', v_user.id,
@@ -45,7 +87,7 @@ $$;
 revoke all on function public.legacy_login(text, text) from public;
 grant execute on function public.legacy_login(text, text) to anon, authenticated;
 
--- 2) 邮箱登录后：自动创建/获取游戏档案（需要已登录 JWT）
+-- 3) 邮箱登录后：创建/获取游戏档案
 create or replace function public.ensure_game_profile(p_username text default null)
 returns jsonb
 language plpgsql
@@ -63,6 +105,7 @@ begin
 
   select * into v_user from public.users where auth_user_id = v_auth;
   if found then
+    perform public._ensure_starter_inventory(v_user.id);
     return to_jsonb(v_user);
   end if;
 
@@ -86,6 +129,7 @@ begin
   )
   returning * into v_user;
 
+  perform public._ensure_starter_inventory(v_user.id);
   return to_jsonb(v_user);
 end;
 $$;
@@ -93,10 +137,5 @@ $$;
 revoke all on function public.ensure_game_profile(text) from public;
 grant execute on function public.ensure_game_profile(text) to authenticated;
 
--- 3) 邮箱用户允许更新自己的档案（昵称/任务/成就等）
-drop policy if exists "users auth update own" on public.users;
-create policy "users auth update own" on public.users
-  for update
-  to authenticated
-  using (auth_user_id = auth.uid())
-  with check (auth_user_id = auth.uid());
+-- 4) 通知 PostgREST 重新加载 schema（避免刚创建函数后前端调用不到）
+notify pgrst, 'reload schema';

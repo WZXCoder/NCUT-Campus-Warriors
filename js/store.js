@@ -150,14 +150,19 @@
             p_password: password,
         });
         if (!error && data) return data;
+        const rpcMsg = error?.message || error?.details || '';
+        if (
+            rpcMsg.includes('legacy_login') ||
+            rpcMsg.includes('does not exist') ||
+            rpcMsg.includes('Could not find the function')
+        ) {
+            throw new Error('请先在 Supabase SQL Editor 执行项目里的 supabase-auth-rpc.sql');
+        }
+        if (rpcMsg) throw new Error(rpcMsg);
         try {
             const legacy = await fetchFunction('legacy-login', { username, password });
             return legacy?.user || null;
         } catch (fnErr) {
-            const rpcMsg = error?.message || '';
-            if (rpcMsg.includes('legacy_login') || rpcMsg.includes('does not exist')) {
-                throw new Error('数据库未安装 legacy_login，请在 Supabase SQL Editor 执行 supabase-auth-rpc.sql');
-            }
             throw fnErr;
         }
     }
@@ -167,6 +172,15 @@
             p_username: username || null,
         });
         if (!error && data) return data;
+        const rpcMsg = error?.message || error?.details || '';
+        if (
+            rpcMsg.includes('ensure_game_profile') ||
+            rpcMsg.includes('does not exist') ||
+            rpcMsg.includes('Could not find the function')
+        ) {
+            throw new Error('请先在 Supabase SQL Editor 执行项目里的 supabase-auth-rpc.sql');
+        }
+        if (rpcMsg) throw new Error(rpcMsg);
         const created = await fetchFunction(
             'create-profile',
             { username },
@@ -465,9 +479,13 @@
                     .maybeSingle();
                 if (!error && data) {
                     local.currentUser = sanitizeUser(data);
-                    await ensureNicknameField();
-                    await markDailyTask('login');
-                    await recordLoginAchievement();
+                    await ensureNicknameField().catch(() => null);
+                    try {
+                        await markDailyTask('login');
+                    } catch (_) { /* ignore */ }
+                    try {
+                        await recordLoginAchievement();
+                    } catch (_) { /* ignore */ }
                 } else {
                     local.db.currentUserId = null;
                     saveLocalDb();
@@ -526,9 +544,14 @@
                 .from('users')
                 .select(USER_SELECT_COLUMNS)
                 .eq('id', local.currentUser.id)
-                .single();
-            if (error) throw new Error(error.message);
-            local.currentUser = sanitizeUser(data);
+                .maybeSingle();
+            if (error) {
+                console.warn('[profile] refresh skipped:', error.message);
+                return local.currentUser;
+            }
+            if (data) {
+                local.currentUser = sanitizeUser(data);
+            }
             return local.currentUser;
         }
         local.currentUser = sanitizeUser(local.db.users[local.db.currentUserId]);
@@ -542,8 +565,11 @@
                 .select('item_id, quantity')
                 .eq('user_id', local.currentUser.id)
                 .gt('quantity', 0);
-            if (error) throw new Error(error.message);
-            return normalizeInventory(Object.fromEntries(data.map(row => [row.item_id, row.quantity])));
+            if (error) {
+                console.warn('[inventory] read skipped:', error.message);
+                return [];
+            }
+            return normalizeInventory(Object.fromEntries((data || []).map(row => [row.item_id, row.quantity])));
         }
         const user = requireLocalUser();
         return normalizeInventory(user.inventory || {});
