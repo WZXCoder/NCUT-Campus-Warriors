@@ -953,15 +953,18 @@
             const profileRows = await supabase
                 .from('users')
                 .select('id, username, nickname');
-            const displayNameById = Object.fromEntries((profileRows.data || []).map(row => [
-                row.id,
-                (row.nickname || row.username || '玩家').trim(),
-            ]));
+            const hasProfiles = !profileRows.error && Array.isArray(profileRows.data) && profileRows.data.length > 0;
+            const displayNameById = Object.fromEntries((profileRows.data || []).map(row => {
+                const base = (row.nickname || row.username || '玩家');
+                const trimmed = String(base || '').trim();
+                const name = trimmed || String(row.username || '').trim() || '玩家';
+                return [row.id, name];
+            }));
             const collectionValues = {};
             if (!invRows.error) {
                 invRows.data.forEach(row => {
                     // 只统计能在 users 中找到的用户，避免“孤儿 inventories”导致排行榜出现 UUID
-                    if (!displayNameById[row.user_id]) return;
+                    if (hasProfiles && !Object.prototype.hasOwnProperty.call(displayNameById, row.user_id)) return;
                     const item = assets.getItemById(row.item_id);
                     if (!item?.collectionValue) return;
                     collectionValues[row.user_id] = (collectionValues[row.user_id] || 0) + item.collectionValue * row.quantity;
@@ -980,7 +983,7 @@
                 skins: Object.entries(collectionValues)
                     .map(([userId, value]) => ({
                         userId,
-                        nickname: displayNameById[userId],
+                        nickname: displayNameById[userId] || '玩家',
                         value,
                     }))
                     .sort((a, b) => b.value - a.value)
