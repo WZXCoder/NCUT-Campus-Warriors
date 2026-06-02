@@ -1,54 +1,65 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 export function getSupabaseUrl() {
-  const url = Deno.env.get("SUPABASE_URL") || "";
-  if (!url) throw new Error("Missing SUPABASE_URL");
-  return url;
-}
-
-export function getAnonKey() {
-  const key = Deno.env.get("SUPABASE_ANON_KEY") || "";
-  if (!key) throw new Error("Missing SUPABASE_ANON_KEY");
-  return key;
+  return (
+    Deno.env.get("SUPABASE_URL") ||
+    Deno.env.get("PROJECT_URL") ||
+    ""
+  );
 }
 
 export function getServiceRoleKey() {
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  if (!key) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-  return key;
+  return (
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    Deno.env.get("SERVICE_ROLE_KEY") ||
+    ""
+  );
 }
 
-export async function requireAuthUser(req: Request) {
-  const supabaseUrl = getSupabaseUrl();
-  const anonKey =
+export function getAnonKey(req?: Request) {
+  return (
     Deno.env.get("SUPABASE_ANON_KEY") ||
-    req.headers.get("apikey") ||
-    "";
-  if (!anonKey) {
-    return { ok: false as const, reason: "服务端缺少 apikey，无法校验登录态" };
-  }
-  const authHeader = req.headers.get("authorization") || "";
-  if (!authHeader) {
-    return { ok: false as const, reason: "缺少登录信息，请先邮箱登录" };
-  }
-
-  const client = createClient(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { authorization: authHeader } },
-  });
-
-  const { data, error } = await client.auth.getUser();
-  if (error || !data?.user?.id) {
-    return { ok: false as const, reason: "登录已失效，请重新邮箱登录" };
-  }
-  return { ok: true as const, userId: data.user.id };
+    req?.headers.get("apikey") ||
+    ""
+  );
 }
 
 export function adminClient() {
   const supabaseUrl = getSupabaseUrl();
   const serviceKey = getServiceRoleKey();
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error(
+      "服务端缺少 SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY（Edge Function 环境变量未就绪）",
+    );
+  }
   return createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
+export async function requireAuthUser(req: Request) {
+  const supabaseUrl = getSupabaseUrl();
+  const anonKey = getAnonKey(req);
+  if (!supabaseUrl || !anonKey) {
+    return { ok: false as const, reason: "服务端配置不完整" };
+  }
+
+  const authHeader = req.headers.get("authorization") || "";
+  if (!authHeader.toLowerCase().startsWith("bearer ")) {
+    return { ok: false as const, reason: "缺少登录信息，请先邮箱登录" };
+  }
+
+  const client = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: authHeader } },
+  });
+
+  const { data, error } = await client.auth.getUser();
+  if (error || !data?.user?.id) {
+    return {
+      ok: false as const,
+      reason: error?.message || "登录已失效，请重新邮箱登录",
+    };
+  }
+  return { ok: true as const, user: data.user };
+}

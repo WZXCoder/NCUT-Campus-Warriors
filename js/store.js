@@ -89,9 +89,12 @@
         return data?.session?.access_token || '';
     }
 
-    async function fetchFunction(path, body) {
+    async function fetchFunction(path, body, options = {}) {
         const { SUPABASE_URL, SUPABASE_ANON_KEY } = supabaseConfig.getRuntimeConfig();
-        const token = await getAccessToken();
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+            throw new Error('未配置 SUPABASE_URL / SUPABASE_ANON_KEY');
+        }
+        const token = options.accessToken || (await getAccessToken());
         const res = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${path}`, {
             method: 'POST',
             headers: {
@@ -101,9 +104,35 @@
             },
             body: JSON.stringify(body || {}),
         });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload?.error || '请求失败');
+        const raw = await res.text();
+        let payload = {};
+        try {
+            payload = raw ? JSON.parse(raw) : {};
+        } catch {
+            payload = {};
+        }
+        if (!res.ok) {
+            const detail = payload?.error || payload?.message || raw?.slice(0, 200) || `HTTP ${res.status}`;
+            throw new Error(detail);
+        }
         return payload;
+    }
+
+    function usernameFromEmail(email) {
+        const local = (email.split('@')[0] || 'player').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '');
+        return local.length >= 2 ? local.slice(0, 20) : `player${Date.now().toString(36).slice(-6)}`;
+    }
+
+    async function finishLoginWithProfile(user) {
+        if (!user?.id) throw new Error('登录失败：档案无效');
+        await ensureStarterInventory(user.id);
+        local.db.currentUserId = user.id;
+        saveLocalDb();
+        local.currentUser = sanitizeUser(user);
+        await ensureNicknameField();
+        await markDailyTask('login');
+        await recordLoginAchievement();
+        return { user: local.currentUser };
     }
 
     async function getSupabaseUserByAuthId(authUserId) {
@@ -116,14 +145,14 @@
         return data;
     }
 
-    async function ensureProfileForAuthSession() {
+    async function ensureProfileForAuthSession(options = {}) {
         if (!supabase) return null;
         const { data } = await supabase.auth.getSession();
         const session = data?.session;
-        const authUserId = session?.user?.id;
-        if (!authUserId) return null;
+        const authUser = session?.user;
+        if (!authUser?.id) return null;
 
-        const linked = await getSupabaseUserByAuthId(authUserId);
+        const linked = await getSupabaseUserByAuthId(authUser.id);
         if (linked?.id) {
             local.db.currentUserId = linked.id;
             saveLocalDb();
@@ -132,8 +161,18 @@
         }
 
         const pendingUsername = (localStorage.getItem(PENDING_USERNAME_KEY) || '').trim();
-        if (pendingUsername) {
-            const created = await fetchFunction('create-profile', { username: pendingUsername });
+        const metaUsername = (authUser.user_metadata?.username || '').trim();
+        const username =
+            pendingUsername ||
+            metaUsername ||
+            (authUser.email ? usernameFromEmail(authUser.email) : '');
+
+        if (username.length >= 2) {
+            const created = await fetchFunction(
+                'create-profile',
+                { username },
+                { accessToken: session.access_token },
+            );
             localStorage.removeItem(PENDING_USERNAME_KEY);
             const user = created?.user;
             if (user?.id) {
@@ -144,19 +183,24 @@
             }
         }
 
-        // 未绑定：提示用户绑定老账号（不丢档）
-        const legacyUsername = prompt('检测到这是新邮箱账号，但尚未绑定旧档案。\n请输入旧用户名以绑定（取消则稍后在登录界面用旧账号登录后再绑定）：') || '';
-        if (!legacyUsername.trim()) return null;
-        const legacyPassword = prompt('请输入旧账号密码：') || '';
-        const linkedRes = await fetchFunction('link-legacy', { username: legacyUsername.trim(), password: legacyPassword });
+        if (options.silent) return null;
+        throw new Error(
+            '邮箱已登录，但尚未创建游戏档案。请重新注册并填写用户名，或使用「用户名+密码」登录旧账号后再绑定邮箱。',
+        );
+    }
+
+    async function linkLegacyToCurrentAuth(username, password) {
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (!token) throw new Error('请先使用邮箱登录后再绑定旧账号');
+        const linkedRes = await fetchFunction(
+            'link-legacy',
+            { username: username.trim(), password },
+            { accessToken: token },
+        );
         const user = linkedRes?.user;
-        if (user?.id) {
-            local.db.currentUserId = user.id;
-            saveLocalDb();
-            local.currentUser = sanitizeUser(user);
-            return local.currentUser;
-        }
-        return null;
+        if (!user?.id) throw new Error('绑定失败');
+        return finishLoginWithProfile(user);
     }
 
     function getChinaDateKey(date = new Date()) {
@@ -230,22 +274,26 @@
     async function ensureNicknameField() {
         if (!local.currentUser) return;
         if (supabase) {
-            const { data, error } = await supabase
-                .from('users')
-                .select('nickname, username')
-                .eq('id', local.currentUser.id)
-                .single();
-            if (error || !data || data.nickname) {
-                if (data?.nickname) await refreshProfile();
-                return;
+            try {
+                const { data, error } = await supabase
+                    .from('users')
+                    .select('nickname, username')
+                    .eq('id', local.currentUser.id)
+                    .single();
+                if (error || !data || data.nickname) {
+                    if (data?.nickname) await refreshProfile();
+                    return;
+                }
+                const { data: updated, error: updateError } = await supabase
+                    .from('users')
+                    .update({ nickname: data.username, updated_at: new Date().toISOString() })
+                    .eq('id', local.currentUser.id)
+                    .select(USER_SELECT_COLUMNS)
+                    .single();
+                if (!updateError && updated) local.currentUser = sanitizeUser(updated);
+            } catch {
+                // RLS 可能禁止前端 update，不影响登录
             }
-            const { data: updated, error: updateError } = await supabase
-                .from('users')
-                .update({ nickname: data.username, updated_at: new Date().toISOString() })
-                .eq('id', local.currentUser.id)
-                .select(USER_SELECT_COLUMNS)
-                .single();
-            if (!updateError && updated) local.currentUser = sanitizeUser(updated);
             return;
         }
         const user = local.db.users[local.db.currentUserId];
@@ -286,7 +334,10 @@
             const { data, error } = await supabase.auth.signUp({
                 email,
                 password,
-                options: { emailRedirectTo: window.location.origin },
+                options: {
+                    emailRedirectTo: window.location.origin,
+                    data: { username },
+                },
             });
             if (error) throw new Error(error.message);
             // 如果未验证，通常不会有 session；提示用户去邮箱点链接
@@ -320,31 +371,26 @@
         usernameOrEmail = (usernameOrEmail || '').trim();
         if (supabase) {
             if (usernameOrEmail.includes('@')) {
-                const { error } = await supabase.auth.signInWithPassword({
+                const { data: authData, error } = await supabase.auth.signInWithPassword({
                     email: usernameOrEmail,
                     password,
                 });
                 if (error) throw new Error(error.message);
+                if (!authData?.session) {
+                    throw new Error('登录失败：未获取到会话，请确认邮箱已完成验证');
+                }
                 await ensureProfileForAuthSession();
-                if (!local.currentUser) throw new Error('邮箱登录成功，但尚未创建/绑定档案');
-                await ensureStarterInventory(local.currentUser.id);
-                await ensureNicknameField();
-                await markDailyTask('login');
-                await recordLoginAchievement();
-                return { user: local.currentUser };
+                if (!local.currentUser) {
+                    throw new Error('邮箱登录成功，但创建游戏档案失败，请稍后重试');
+                }
+                return finishLoginWithProfile(local.currentUser);
             }
 
-            const legacy = await fetchFunction('legacy-login', { username: usernameOrEmail, password });
-            const user = legacy?.user;
-            if (!user?.id) throw new Error('用户名或密码错误');
-            await ensureStarterInventory(user.id);
-            local.db.currentUserId = user.id;
-            saveLocalDb();
-            local.currentUser = sanitizeUser(user);
-            await ensureNicknameField();
-            await markDailyTask('login');
-            await recordLoginAchievement();
-            return { user: local.currentUser };
+            const legacy = await fetchFunction('legacy-login', {
+                username: usernameOrEmail,
+                password,
+            });
+            return finishLoginWithProfile(legacy?.user);
         }
 
         const user = getLocalUserByName(username);
@@ -376,8 +422,8 @@
         }
 
         if (supabase) {
-            // 优先使用邮箱登录的 session 自动恢复
-            await ensureProfileForAuthSession().catch(() => null);
+            // 静默恢复邮箱 session（不弹窗）
+            await ensureProfileForAuthSession({ silent: true }).catch(() => null);
             if (local.db.currentUserId) {
                 const { data, error } = await supabase
                     .from('users')
