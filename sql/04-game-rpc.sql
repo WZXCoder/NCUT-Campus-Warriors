@@ -18,11 +18,19 @@ returns jsonb language sql stable as $$
   );
 $$;
 
+create or replace function public._game_rpc_begin()
+returns void language plpgsql as $$
+begin
+  perform set_config('ncut.game_rpc', '1', true);
+end;
+$$;
+
 -- 保存每日任务进度（完成/领取状态）
 create or replace function public.game_save_daily_tasks(p_user_id uuid, p_daily_tasks jsonb)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare v_user public.users%rowtype;
 begin
+  perform public._game_rpc_begin();
   if p_user_id is null then raise exception 'invalid user_id'; end if;
   if p_daily_tasks is null or jsonb_typeof(p_daily_tasks) <> 'object' then
     raise exception 'invalid daily_tasks';
@@ -44,6 +52,7 @@ declare
   v_next integer;
   v_max_delta constant integer := 300000;
 begin
+  perform public._game_rpc_begin();
   if p_user_id is null then raise exception 'invalid user_id'; end if;
   v_next := greatest(0, coalesce(p_coins, 0));
   select * into v_user from public.users where id = p_user_id for update;
@@ -66,6 +75,7 @@ declare
   v_reward integer;
   v_today text;
 begin
+  perform public._game_rpc_begin();
   if p_user_id is null then raise exception 'invalid user_id'; end if;
   v_reward := case trim(p_task_id)
     when 'login' then 100

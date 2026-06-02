@@ -102,7 +102,7 @@
             msg.includes('game_claim_daily_task') ||
             msg.includes('Could not find')
         ) {
-            throw new Error('请先在 Supabase 按 sql/README.md 执行 01→01-items-seed→02→03→04');
+            throw new Error('请先在 Supabase 按 sql/README.md 执行脚本（含 04、05）');
         }
         throw new Error(msg || '请求失败');
     }

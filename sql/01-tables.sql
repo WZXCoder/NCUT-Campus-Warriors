@@ -228,8 +228,27 @@ create table if not exists public.game_room_npcs (
 create index if not exists idx_game_room_npcs_room on public.game_room_npcs(room_id);
 
 -- ========= 关键字段写入保护（触发器）（无 Auth 场景） =========
--- 说明：在仍允许匿名写库的前提下，至少防止 ncut_coins 被一次性改成离谱数值，
--- 并禁止修改 password_hash 等敏感字段。长期方案应迁移到 Auth/RPC/Edge Functions。
+-- 说明：anon/authenticated 直连 update 禁止改币/任务等；game_* RPC（SECURITY DEFINER）走可信写入。
+
+create or replace function public._users_guard_is_privileged()
+returns boolean
+language plpgsql
+stable
+as $$
+begin
+  -- game_* RPC 在更新前设置（见 04-game-rpc.sql）
+  if coalesce(current_setting('ncut.game_rpc', true), '') = '1' then
+    return true;
+  end if;
+  return current_user in (
+    'service_role',
+    'postgres',
+    'supabase_admin',
+    'supabase_storage_admin',
+    'authenticator'
+  );
+end;
+$$;
 
 create or replace function public._guard_users_update()
 returns trigger
@@ -237,21 +256,19 @@ language plpgsql
 as $$
 declare
   delta_coins integer;
+  max_coin_delta constant integer := 300000;
 begin
-  -- 禁止修改密码（避免直接接管账号）
   if new.password_hash is distinct from old.password_hash then
-    if current_user <> 'service_role' then
+    if not public._users_guard_is_privileged() then
       raise exception 'password_hash cannot be updated';
     end if;
   end if;
 
-  -- 基本合法性
   if new.ncut_coins is null or new.ncut_coins < 0 then
     raise exception 'ncut_coins must be >= 0';
   end if;
 
-  -- 非 service_role：只允许改“非敏感字段”，严禁改币/背包/成就等关键字段
-  if current_user <> 'service_role' then
+  if not public._users_guard_is_privileged() then
     if new.ncut_coins is distinct from old.ncut_coins then
       raise exception 'ncut_coins cannot be updated';
     end if;
@@ -271,12 +288,11 @@ begin
       raise exception 'created_at cannot be updated';
     end if;
   else
-    -- service_role：仍保留合理的经济上限与单次变化限制（防止误操作/脚本跑飞）
     if new.ncut_coins > 200000 then
       raise exception 'ncut_coins exceeds max allowed';
     end if;
     delta_coins := new.ncut_coins - old.ncut_coins;
-    if abs(delta_coins) > 5000 then
+    if abs(delta_coins) > max_coin_delta then
       raise exception 'ncut_coins delta too large';
     end if;
   end if;

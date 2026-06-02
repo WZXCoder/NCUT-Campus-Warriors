@@ -9,6 +9,7 @@
 | 3 | [02-rls.sql](./02-rls.sql) | 行级安全策略（RLS）与基础读取权限 |
 | 4 | [03-auth.sql](./03-auth.sql) | 注册/登录：数字验证码 + 限流（RPC） |
 | 5 | [04-game-rpc.sql](./04-game-rpc.sql) | 每日任务保存/领取、金币变更（RPC） |
+| 6 | [05-user-guard-fix.sql](./05-user-guard-fix.sql) | 修复 RPC 改币被触发器误拦（报 ncut_coins cannot be updated 时必跑） |
 
 ## 前端对应关系
 
