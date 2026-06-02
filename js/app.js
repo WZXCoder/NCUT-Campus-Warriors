@@ -802,17 +802,16 @@
             }
         }
 
-        async function handleRegister(username, password) {
+        async function handleRegister(email, username, password) {
             try {
                 if (password.length < 6) {
                     throw new Error('密码至少需要6位');
                 }
-                const turnstileToken =
-                    document.querySelector('input[name="cf-turnstile-response"]')?.value?.trim() || '';
-                if (!turnstileToken) {
-                    throw new Error('请先完成安全验证');
+                const { user, pendingEmailVerification } = await auth.signUp(email, password, { username });
+                if (pendingEmailVerification) {
+                    document.getElementById('register-error').textContent = '已发送验证邮件，请先去邮箱完成验证后再登录。';
+                    return;
                 }
-                const { user } = await auth.signUp(username, password, { turnstileToken });
                 if (user) {
                     await showLobby();
                 }
@@ -923,9 +922,10 @@
 
         document.getElementById('register-form').addEventListener('submit', (e) => {
             e.preventDefault();
+            const email = document.getElementById('register-email').value;
             const username = document.getElementById('register-username').value;
             const password = document.getElementById('register-password').value;
-            handleRegister(username, password);
+            handleRegister(email, username, password);
         });
 
         logoutBtn.addEventListener('click', handleLogout);

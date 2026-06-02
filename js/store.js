@@ -3,7 +3,7 @@
     const LOCAL_KEY = 'ncut_game_state_v2';
     const DEFAULT_COINS = 3000;
     const DEFAULT_BACKPACK_CAPACITY = 50;
-    const USER_SELECT_COLUMNS = 'id, username, nickname, bio, ncut_coins, current_skin_item_id, backpack_capacity, daily_tasks, achievements, achievement_stats';
+    const USER_SELECT_COLUMNS = 'id, auth_user_id, username, nickname, bio, ncut_coins, current_skin_item_id, backpack_capacity, daily_tasks, achievements, achievement_stats';
     const MAX_BIO_LENGTH = 100;
     const DAILY_TASKS = [
         { id: 'login', name: '每日登录', reward: 100 },
@@ -68,6 +68,7 @@
         if (!user) return null;
         return {
             id: user.id,
+            authUserId: user.authUserId ?? user.auth_user_id ?? null,
             username: user.username,
             nickname: user.nickname ?? user.username ?? '',
             bio: user.bio ?? '',
@@ -78,6 +79,85 @@
             achievements: user.achievements ?? null,
             achievementStats: user.achievementStats ?? user.achievement_stats ?? null,
         };
+    }
+
+    const PENDING_USERNAME_KEY = 'ncut_pending_username_v1';
+
+    async function getAccessToken() {
+        if (!supabase) return '';
+        const { data } = await supabase.auth.getSession();
+        return data?.session?.access_token || '';
+    }
+
+    async function fetchFunction(path, body) {
+        const { SUPABASE_URL, SUPABASE_ANON_KEY } = supabaseConfig.getRuntimeConfig();
+        const token = await getAccessToken();
+        const res = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${path}`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                apikey: SUPABASE_ANON_KEY,
+                authorization: token ? `Bearer ${token}` : `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify(body || {}),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || '请求失败');
+        return payload;
+    }
+
+    async function getSupabaseUserByAuthId(authUserId, includePassword = false) {
+        const columns = includePassword ? `password_hash, ${USER_SELECT_COLUMNS}` : USER_SELECT_COLUMNS;
+        const { data, error } = await supabase
+            .from('users')
+            .select(columns)
+            .eq('auth_user_id', authUserId)
+            .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data;
+    }
+
+    async function ensureProfileForAuthSession() {
+        if (!supabase) return null;
+        const { data } = await supabase.auth.getSession();
+        const session = data?.session;
+        const authUserId = session?.user?.id;
+        if (!authUserId) return null;
+
+        const linked = await getSupabaseUserByAuthId(authUserId);
+        if (linked?.id) {
+            local.db.currentUserId = linked.id;
+            saveLocalDb();
+            local.currentUser = sanitizeUser(linked);
+            return local.currentUser;
+        }
+
+        const pendingUsername = (localStorage.getItem(PENDING_USERNAME_KEY) || '').trim();
+        if (pendingUsername) {
+            const created = await fetchFunction('create-profile', { username: pendingUsername });
+            localStorage.removeItem(PENDING_USERNAME_KEY);
+            const user = created?.user;
+            if (user?.id) {
+                local.db.currentUserId = user.id;
+                saveLocalDb();
+                local.currentUser = sanitizeUser(user);
+                return local.currentUser;
+            }
+        }
+
+        // 未绑定：提示用户绑定老账号（不丢档）
+        const legacyUsername = prompt('检测到这是新邮箱账号，但尚未绑定旧档案。\n请输入旧用户名以绑定（取消则稍后在登录界面用旧账号登录后再绑定）：') || '';
+        if (!legacyUsername.trim()) return null;
+        const legacyPassword = prompt('请输入旧账号密码：') || '';
+        const linkedRes = await fetchFunction('link-legacy', { username: legacyUsername.trim(), password: legacyPassword });
+        const user = linkedRes?.user;
+        if (user?.id) {
+            local.db.currentUserId = user.id;
+            saveLocalDb();
+            local.currentUser = sanitizeUser(user);
+            return local.currentUser;
+        }
+        return null;
     }
 
     function getChinaDateKey(date = new Date()) {
@@ -194,35 +274,25 @@
         return local.currentUser;
     }
 
-    async function signUp(username, password, options = {}) {
-        username = username.trim();
+    async function signUp(email, password, options = {}) {
+        email = (email || '').trim();
+        const username = (options?.username || '').trim();
+        if (!email || !email.includes('@')) throw new Error('请输入有效邮箱');
         if (username.length < 2) throw new Error('用户名至少需要2个字符');
         if (password.length < 6) throw new Error('密码至少需要6位');
 
         if (supabase) {
-            const { SUPABASE_URL, SUPABASE_ANON_KEY } = supabaseConfig.getRuntimeConfig();
-            const turnstileToken = options?.turnstileToken || '';
-            const res = await fetch(`${SUPABASE_URL.replace(/\\/$/, '')}/functions/v1/signup`, {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    apikey: SUPABASE_ANON_KEY,
-                    authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-                },
-                body: JSON.stringify({ username, password, turnstileToken }),
+            // 先注册 Auth（默认需要邮箱验证）
+            localStorage.setItem(PENDING_USERNAME_KEY, username);
+            const { data, error } = await supabase.auth.signUp({
+                email,
+                password,
+                options: { emailRedirectTo: window.location.origin },
             });
-            const payload = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(payload?.error || '注册失败');
-            const data = payload?.user;
-            if (!data?.id) throw new Error('注册失败：返回数据异常');
-            await ensureStarterInventory(data.id);
-            local.db.currentUserId = data.id;
-            saveLocalDb();
-            local.currentUser = sanitizeUser(data);
-            await ensureNicknameField();
-            await markDailyTask('login');
-            await recordLoginAchievement();
-            return { user: local.currentUser };
+            if (error) throw new Error(error.message);
+            // 如果未验证，通常不会有 session；提示用户去邮箱点链接
+            const pendingEmailVerification = !data?.session;
+            return { user: null, pendingEmailVerification };
         }
 
         if (getLocalUserByName(username)) throw new Error('用户名已存在');
@@ -247,11 +317,26 @@
         return result;
     }
 
-    async function signIn(username, password) {
-        username = username.trim();
+    async function signIn(usernameOrEmail, password) {
+        usernameOrEmail = (usernameOrEmail || '').trim();
         if (supabase) {
-            const user = await getSupabaseUserByName(username, true);
-            if (!user || user.password_hash !== hashPassword(username, password)) {
+            if (usernameOrEmail.includes('@')) {
+                const { error } = await supabase.auth.signInWithPassword({
+                    email: usernameOrEmail,
+                    password,
+                });
+                if (error) throw new Error(error.message);
+                await ensureProfileForAuthSession();
+                if (!local.currentUser) throw new Error('邮箱登录成功，但尚未创建/绑定档案');
+                await ensureStarterInventory(local.currentUser.id);
+                await ensureNicknameField();
+                await markDailyTask('login');
+                await recordLoginAchievement();
+                return { user: local.currentUser };
+            }
+
+            const user = await getSupabaseUserByName(usernameOrEmail, true);
+            if (!user || user.password_hash !== hashPassword(usernameOrEmail, password)) {
                 throw new Error('用户名或密码错误');
             }
             await ensureStarterInventory(user.id);
@@ -277,6 +362,9 @@
     }
 
     async function signOut() {
+        if (supabase) {
+            await supabase.auth.signOut();
+        }
         local.db.currentUserId = null;
         local.currentUser = null;
         saveLocalDb();
@@ -290,6 +378,8 @@
         }
 
         if (supabase) {
+            // 优先使用邮箱登录的 session 自动恢复
+            await ensureProfileForAuthSession().catch(() => null);
             if (local.db.currentUserId) {
                 const { data, error } = await supabase
                     .from('users')

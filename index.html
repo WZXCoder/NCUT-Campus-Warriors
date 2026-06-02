@@ -27,10 +27,8 @@
             SUPABASE_URL: '__SUPABASE_URL__',
             SUPABASE_ANON_KEY: '__SUPABASE_ANON_KEY__',
             ASSET_BASE_URL: '__ASSET_BASE_URL__',
-            TURNSTILE_SITE_KEY: '__TURNSTILE_SITE_KEY__',
         };
     </script>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
     <div id="landscape-hint" class="landscape-hint hidden" aria-live="polite">
@@ -52,8 +50,8 @@
 
             <form id="login-form" class="auth-form">
                 <div class="form-group">
-                    <label for="login-username">用户名</label>
-                    <input type="text" id="login-username" placeholder="请输入用户名" required>
+                    <label for="login-username">用户名或邮箱</label>
+                    <input type="text" id="login-username" placeholder="请输入用户名或邮箱" required>
                 </div>
                 <div class="form-group">
                     <label for="login-password">密码</label>
@@ -65,15 +63,16 @@
 
             <form id="register-form" class="auth-form hidden">
                 <div class="form-group">
+                    <label for="register-email">邮箱</label>
+                    <input type="email" id="register-email" placeholder="请输入邮箱（用于验证）" required>
+                </div>
+                <div class="form-group">
                     <label for="register-username">用户名</label>
                     <input type="text" id="register-username" placeholder="请输入用户名" required>
                 </div>
                 <div class="form-group">
                     <label for="register-password">密码</label>
                     <input type="password" id="register-password" placeholder="请输入密码（至少6位）" required>
-                </div>
-                <div class="form-group">
-                    <div class="cf-turnstile" data-sitekey="__TURNSTILE_SITE_KEY__"></div>
                 </div>
                 <button type="submit" class="auth-btn">注册</button>
                 <p class="form-error" id="register-error"></p>

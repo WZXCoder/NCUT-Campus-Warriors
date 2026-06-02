@@ -2,6 +2,7 @@ create extension if not exists "uuid-ossp";
 
 create table if not exists public.users (
     id uuid primary key default uuid_generate_v4(),
+    auth_user_id uuid unique,
     username text unique not null,
     nickname text,
     password_hash text not null,
@@ -21,6 +22,7 @@ create table if not exists public.users (
 -- 兼容你之前创建过的 users 表：去掉邮箱必填，并补齐游戏字段。
 alter table public.users add column if not exists nickname text;
 alter table public.users add column if not exists password_hash text;
+alter table public.users add column if not exists auth_user_id uuid;
 alter table public.users add column if not exists avatar_color text default '#4A90D9';
 alter table public.users add column if not exists ncut_coins integer not null default 3000;
 alter table public.users add column if not exists current_skin_item_id text;
@@ -120,6 +122,7 @@ alter table public.game_runs
     add constraint game_runs_user_id_fkey foreign key (user_id) references public.users(id) on delete cascade;
 
 create index if not exists idx_users_username on public.users(username);
+create unique index if not exists idx_users_auth_user_id on public.users(auth_user_id) where auth_user_id is not null;
 create index if not exists idx_inventories_user_id on public.inventories(user_id);
 create index if not exists idx_game_runs_user_id on public.game_runs(user_id);
 create index if not exists idx_friend_requests_to_user on public.friend_requests(to_user_id, status);
@@ -175,6 +178,22 @@ create table if not exists public.signup_rate_limits (
 alter table public.signup_rate_limits enable row level security;
 drop policy if exists "signup_rate_limits service all" on public.signup_rate_limits;
 create policy "signup_rate_limits service all" on public.signup_rate_limits
+    for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
+
+-- 邀请码注册：仅 service_role 可读写
+create table if not exists public.invite_codes (
+    code text primary key,
+    remaining integer not null default 1,
+    disabled boolean not null default false,
+    expires_at timestamptz,
+    note text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+alter table public.invite_codes enable row level security;
+drop policy if exists "invite_codes service all" on public.invite_codes;
+create policy "invite_codes service all" on public.invite_codes
     for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
 
 create policy "items are readable" on public.items
