@@ -20,7 +20,13 @@ export function getServiceRoleKey() {
 
 export async function requireAuthUser(req: Request) {
   const supabaseUrl = getSupabaseUrl();
-  const anonKey = getAnonKey();
+  const anonKey =
+    Deno.env.get("SUPABASE_ANON_KEY") ||
+    req.headers.get("apikey") ||
+    "";
+  if (!anonKey) {
+    return { ok: false as const, reason: "服务端缺少 apikey，无法校验登录态" };
+  }
   const authHeader = req.headers.get("authorization") || "";
   if (!authHeader) {
     return { ok: false as const, reason: "缺少登录信息，请先邮箱登录" };
