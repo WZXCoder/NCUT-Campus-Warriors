@@ -886,10 +886,26 @@
         return hostId === userId;
     }
 
-    async function ensureSharedNpcs(roomId, buildNpcRow, maxCount = MAX_SHARED_NPCS) {
-        if (!supabase || !roomId || typeof buildNpcRow !== 'function') return;
+    async function ensureSharedNpcs(roomId, buildNpcRow, maxCount = MAX_SHARED_NPCS, options = {}) {
+        if (!supabase || !roomId || typeof buildNpcRow !== 'function') return 0;
+        const allowSeedWhenEmpty = options.allowSeedWhenEmpty !== false;
         const rows = await fetchSharedNpcs(roomId);
+        if (rows.length >= maxCount) {
+            await refreshSharedNpcs(roomId);
+            return rows.length;
+        }
+        // 房间尚无 NPC 时任意在局玩家可补种（避免“非房主/房主离线”导致全场无怪）
+        if (rows.length > 0 && options.isHost === false) {
+            await refreshSharedNpcs(roomId);
+            return rows.length;
+        }
+        if (rows.length === 0 && !allowSeedWhenEmpty) {
+            await refreshSharedNpcs(roomId);
+            return 0;
+        }
+
         let needed = maxCount - rows.length;
+        let inserted = 0;
         while (needed > 0) {
             const row = buildNpcRow();
             const { error } = await supabase.from('game_room_npcs').insert({
@@ -900,9 +916,11 @@
                 console.error('[realtime] ensureSharedNpcs failed:', error);
                 break;
             }
+            inserted += 1;
             needed -= 1;
         }
         await refreshSharedNpcs(roomId);
+        return rows.length + inserted;
     }
 
     async function updateSharedNpc(npcId, fields) {
@@ -1000,7 +1018,10 @@
             sharedNpcBroadcastMode = useBroadcast !== false;
             onSharedNpcsChange = onChange || null;
             await refreshSharedNpcs(roomId);
-            if (isHost) await ensureSharedNpcs(roomId, buildNpcRow, maxCount);
+            await ensureSharedNpcs(roomId, buildNpcRow, maxCount, {
+                isHost: Boolean(isHost),
+                allowSeedWhenEmpty: true,
+            });
             sharedNpcRealtimeActive = await subscribeSharedNpcChanges(roomId);
             startSharedNpcPolling(roomId);
             return { ok: true, realtime: sharedNpcRealtimeActive, broadcast: sharedNpcBroadcastMode };

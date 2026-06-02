@@ -51,6 +51,7 @@
             roomId = null,
             userId = null,
             multiplayer = null,
+            useSharedNpcs: useSharedNpcsOption = null,
             onLeaveRoom = null,
         } = options;
         const { skills } = global.NCUTMap;
@@ -274,7 +275,7 @@
                 state.droppedItems.push({ itemId: pickWeightedGem().id, x: target.x, y: target.y });
             }
             state.npcs = state.npcs.filter(npc => npc.id !== target.id);
-            if (!state.useSharedNpcs) maintainHostiles();
+            void maintainHostiles();
         }
 
         function buildSharedNpcRow() {
@@ -566,11 +567,14 @@
         function teachingSpawnPoint() {
             const teaching = buildings.filter(building => building.type === 'teaching');
             const building = teaching[Math.floor(Math.random() * teaching.length)] || buildings[0];
-            const rect = building.rects[Math.floor(Math.random() * building.rects.length)];
-            return {
-                x: randomBetween(rect[0], rect[0] + rect[2]),
-                y: randomBetween(rect[1], rect[1] + rect[3]),
-            };
+            const rect = building?.rects?.[Math.floor(Math.random() * (building?.rects?.length || 0))];
+            if (rect && rect.length >= 4) {
+                return {
+                    x: randomBetween(rect[0], rect[0] + rect[2]),
+                    y: randomBetween(rect[1], rect[1] + rect[3]),
+                };
+            }
+            return randomPoint();
         }
 
         function getAliveHostileCount() {
@@ -612,12 +616,29 @@
             });
         }
 
-        function maintainHostiles() {
+        function disableSharedNpcs() {
+            state.useSharedNpcs = false;
+            state.npcBroadcastMode = false;
+            multiplayer?.stopSharedNpcs?.();
+        }
+
+        async function maintainHostiles() {
             if (state.useSharedNpcs) {
-                if (state.isRoomHost && multiplayer?.ensureSharedNpcs) {
-                    multiplayer.ensureSharedNpcs(roomId, buildSharedNpcRow);
+                if (multiplayer?.ensureSharedNpcs) {
+                    await multiplayer.ensureSharedNpcs(roomId, buildSharedNpcRow, MAX_HOSTILES, {
+                        isHost: state.isRoomHost,
+                        allowSeedWhenEmpty: true,
+                    });
                 }
-                return;
+                if (multiplayer?.refreshSharedNpcs) {
+                    await multiplayer.refreshSharedNpcs(roomId);
+                }
+                if (getAliveHostileCount() === 0) {
+                    console.warn('[goldrush] shared npcs empty, fallback to local npcs');
+                    disableSharedNpcs();
+                } else {
+                    return;
+                }
             }
             while (getAliveHostileCount() < MAX_HOSTILES) {
                 spawnNpc();
@@ -663,8 +684,11 @@
             maintainCollectible();
             maintainEquipmentDrops();
 
-            state.useSharedNpcs = Boolean(roomId && multiplayer?.initSharedNpcs);
-            if (state.useSharedNpcs) {
+            const wantSharedNpcs = useSharedNpcsOption !== false
+                && Boolean(roomId && multiplayer?.initSharedNpcs);
+            state.useSharedNpcs = false;
+            state.npcBroadcastMode = false;
+            if (wantSharedNpcs) {
                 try {
                     state.isRoomHost = await multiplayer.isRoomHost(roomId, userId);
                     const npcResult = await multiplayer.initSharedNpcs({
@@ -675,20 +699,17 @@
                         useBroadcast: true,
                     });
                     if (!npcResult?.ok) {
-                        state.useSharedNpcs = false;
-                        state.npcBroadcastMode = false;
-                        maintainHostiles();
+                        disableSharedNpcs();
                     } else {
+                        state.useSharedNpcs = true;
                         state.npcBroadcastMode = npcResult.broadcast !== false;
                     }
                 } catch (error) {
                     console.error('[goldrush] shared npc init failed:', error);
-                    state.useSharedNpcs = false;
-                    maintainHostiles();
+                    disableSharedNpcs();
                 }
-            } else {
-                maintainHostiles();
             }
+            await maintainHostiles();
             pushHud(true);
         }
 
@@ -983,7 +1004,7 @@
                 multiplayer?.isRoomHost?.(roomId, userId).then(isHost => {
                     if (isHost === state.isRoomHost) return;
                     state.isRoomHost = isHost;
-                    if (isHost) maintainHostiles();
+                    if (isHost) void maintainHostiles();
                 });
             }
 

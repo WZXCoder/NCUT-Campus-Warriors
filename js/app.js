@@ -494,18 +494,22 @@
             const baseBackpackUsage = store.getInventoryUsageFromEntries(appState.inventory);
 
             let roomId = null;
+            let goldRushPlayerCount = 1;
             if (realtime?.isEnabled?.()) {
                 try {
                     const joinResult = await realtime.findOrJoinGoldRushRoom(user, displayName);
                     roomId = joinResult.roomId;
+                    goldRushPlayerCount = joinResult.playerCount || 1;
                     appState.goldRushRoomId = roomId;
                     if (joinResult.created) ui.toast('已创建新摸金房间');
-                    else ui.toast(`加入摸金房间（当前约 ${joinResult.playerCount || 1} 人）`);
+                    else ui.toast(`加入摸金房间（当前约 ${goldRushPlayerCount} 人）`);
                 } catch (error) {
                     console.error(error);
                     ui.toast(`房间匹配失败：${error.message}（请确认已执行 game_rooms SQL）`);
                 }
             }
+
+            const useSharedGoldRushNpcs = Boolean(roomId && goldRushPlayerCount > 1);
 
             appState.currentRun = goldrush.createGoldRush({
                 player,
@@ -519,11 +523,14 @@
                 baseBackpackUsage,
                 roomId,
                 userId: user?.id,
-                multiplayer: realtime?.isEnabled?.() ? {
+                useSharedNpcs: useSharedGoldRushNpcs,
+                multiplayer: useSharedGoldRushNpcs ? {
                     broadcast: (event, payload) => realtime.broadcast(event, payload),
                     isRoomHost: (rid, uid) => realtime.isRoomHost(rid, uid),
                     initSharedNpcs: opts => realtime.initSharedNpcs(opts),
-                    ensureSharedNpcs: (rid, builder) => realtime.ensureSharedNpcs(rid, builder),
+                    ensureSharedNpcs: (rid, builder, max, opts) => realtime.ensureSharedNpcs(rid, builder, max, opts),
+                    refreshSharedNpcs: rid => realtime.refreshSharedNpcs(rid),
+                    stopSharedNpcs: () => realtime.stopSharedNpcs(),
                     updateSharedNpcHp: (id, hp) => realtime.updateSharedNpcHp(id, hp),
                     deleteSharedNpc: id => realtime.deleteSharedNpc(id),
                     syncSharedNpcBatch: npcs => realtime.syncSharedNpcBatch(npcs),
