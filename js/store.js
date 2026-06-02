@@ -106,11 +106,10 @@
         return payload;
     }
 
-    async function getSupabaseUserByAuthId(authUserId, includePassword = false) {
-        const columns = includePassword ? `password_hash, ${USER_SELECT_COLUMNS}` : USER_SELECT_COLUMNS;
+    async function getSupabaseUserByAuthId(authUserId) {
         const { data, error } = await supabase
             .from('users')
-            .select(columns)
+            .select(USER_SELECT_COLUMNS)
             .eq('auth_user_id', authUserId)
             .maybeSingle();
         if (error) throw new Error(error.message);
@@ -335,10 +334,9 @@
                 return { user: local.currentUser };
             }
 
-            const user = await getSupabaseUserByName(usernameOrEmail, true);
-            if (!user || user.password_hash !== hashPassword(usernameOrEmail, password)) {
-                throw new Error('用户名或密码错误');
-            }
+            const legacy = await fetchFunction('legacy-login', { username: usernameOrEmail, password });
+            const user = legacy?.user;
+            if (!user?.id) throw new Error('用户名或密码错误');
             await ensureStarterInventory(user.id);
             local.db.currentUserId = user.id;
             saveLocalDb();
@@ -409,13 +407,10 @@
         return { usingSupabase: false, configured: false };
     }
 
-    async function getSupabaseUserByName(username, includePassword = false) {
-        const columns = includePassword
-            ? `password_hash, ${USER_SELECT_COLUMNS}`
-            : USER_SELECT_COLUMNS;
+    async function getSupabaseUserByName(username) {
         const { data, error } = await supabase
             .from('users')
-            .select(columns)
+            .select(USER_SELECT_COLUMNS)
             .eq('username', username)
             .maybeSingle();
         if (error) throw new Error(error.message);
