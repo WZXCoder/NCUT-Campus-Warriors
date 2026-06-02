@@ -85,10 +85,24 @@
         return global.NCUTMap.captcha?.getDeviceId?.() || '';
     }
 
+    function applyRpcUser(data) {
+        if (!data || typeof data !== 'object') throw new Error('档案同步失败');
+        local.currentUser = sanitizeUser(data);
+        return local.currentUser;
+    }
+
     function mapRpcAuthError(error) {
         const msg = error?.message || error?.details || '';
-        if (msg.includes('auth_login') || msg.includes('auth_register') || msg.includes('issue_captcha') || msg.includes('Could not find')) {
-            throw new Error('请先在 Supabase SQL Editor 执行 supabase-captcha-auth.sql');
+        if (
+            msg.includes('auth_login') ||
+            msg.includes('auth_register') ||
+            msg.includes('issue_captcha') ||
+            msg.includes('game_save_daily_tasks') ||
+            msg.includes('game_set_coins') ||
+            msg.includes('game_claim_daily_task') ||
+            msg.includes('Could not find')
+        ) {
+            throw new Error('请先在 Supabase 按 sql/README.md 执行 01→01-items-seed→02→03→04');
         }
         throw new Error(msg || '请求失败');
     }
@@ -440,15 +454,12 @@
     async function setCoins(nextCoins) {
         nextCoins = Math.max(0, Math.floor(nextCoins));
         if (supabase && local.currentUser) {
-            const { data, error } = await supabase
-                .from('users')
-                .update({ ncut_coins: nextCoins, updated_at: new Date().toISOString() })
-                .eq('id', local.currentUser.id)
-                .select(USER_SELECT_COLUMNS)
-                .single();
-            if (error) throw new Error(error.message);
-            local.currentUser = sanitizeUser(data);
-            return local.currentUser;
+            const { data, error } = await supabase.rpc('game_set_coins', {
+                p_user_id: local.currentUser.id,
+                p_coins: nextCoins,
+            });
+            if (error) mapRpcAuthError(error);
+            return applyRpcUser(data);
         }
         const user = requireLocalUser();
         user.ncutCoins = nextCoins;
@@ -459,18 +470,12 @@
 
     async function saveDailyTasksState(nextState) {
         if (supabase && local.currentUser) {
-            const { data, error } = await supabase
-                .from('users')
-                .update({ daily_tasks: nextState, updated_at: new Date().toISOString() })
-                .eq('id', local.currentUser.id)
-                .select(USER_SELECT_COLUMNS)
-                .single();
-            if (error) {
-                local.currentUser = { ...local.currentUser, dailyTasks: nextState };
-                console.warn('[dailyTasks] save skipped:', error.message);
-                return nextState;
-            }
-            local.currentUser = sanitizeUser(data);
+            const { data, error } = await supabase.rpc('game_save_daily_tasks', {
+                p_user_id: local.currentUser.id,
+                p_daily_tasks: nextState,
+            });
+            if (error) mapRpcAuthError(error);
+            applyRpcUser(data);
             return nextState;
         }
         const user = requireLocalUser();
@@ -543,6 +548,15 @@
     async function claimDailyTask(taskId) {
         const task = DAILY_TASKS.find(item => item.id === taskId);
         if (!task) throw new Error('任务不存在');
+        if (supabase && local.currentUser) {
+            const { data, error } = await supabase.rpc('game_claim_daily_task', {
+                p_user_id: local.currentUser.id,
+                p_task_id: taskId,
+            });
+            if (error) throw new Error(error.message || '领取失败');
+            applyRpcUser(data);
+            return getDailyTasks();
+        }
         const profile = await refreshProfile();
         const state = normalizeDailyTasks(profile.dailyTasks);
         const current = state.tasks[taskId];

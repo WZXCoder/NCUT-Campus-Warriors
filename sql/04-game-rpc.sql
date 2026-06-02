@@ -1,0 +1,127 @@
+-- 04-game-rpc.sql：金币与每日任务（绕过 users 表 anon 不可 update 的限制）
+-- 需先执行 01 → 02 → 03
+
+create or replace function public._game_user_json(p_user public.users)
+returns jsonb language sql stable as $$
+  select jsonb_build_object(
+    'id', p_user.id,
+    'auth_user_id', p_user.auth_user_id,
+    'username', p_user.username,
+    'nickname', p_user.nickname,
+    'bio', p_user.bio,
+    'ncut_coins', p_user.ncut_coins,
+    'current_skin_item_id', p_user.current_skin_item_id,
+    'backpack_capacity', p_user.backpack_capacity,
+    'daily_tasks', p_user.daily_tasks,
+    'achievements', p_user.achievements,
+    'achievement_stats', p_user.achievement_stats
+  );
+$$;
+
+-- 保存每日任务进度（完成/领取状态）
+create or replace function public.game_save_daily_tasks(p_user_id uuid, p_daily_tasks jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_user public.users%rowtype;
+begin
+  if p_user_id is null then raise exception 'invalid user_id'; end if;
+  if p_daily_tasks is null or jsonb_typeof(p_daily_tasks) <> 'object' then
+    raise exception 'invalid daily_tasks';
+  end if;
+  update public.users
+  set daily_tasks = p_daily_tasks, updated_at = now()
+  where id = p_user_id
+  returning * into v_user;
+  if not found then raise exception 'user not found'; end if;
+  return public._game_user_json(v_user);
+end; $$;
+
+-- 设置金币（单次变动上限：允许背包批量出售宝石等正常玩法）
+create or replace function public.game_set_coins(p_user_id uuid, p_coins integer)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_user public.users%rowtype;
+  v_delta integer;
+  v_next integer;
+  v_max_delta constant integer := 300000;
+begin
+  if p_user_id is null then raise exception 'invalid user_id'; end if;
+  v_next := greatest(0, coalesce(p_coins, 0));
+  select * into v_user from public.users where id = p_user_id for update;
+  if not found then raise exception 'user not found'; end if;
+  if v_next > 200000 then raise exception 'ncut_coins exceeds max allowed'; end if;
+  v_delta := v_next - v_user.ncut_coins;
+  if abs(v_delta) > v_max_delta then raise exception 'ncut_coins delta too large'; end if;
+  update public.users set ncut_coins = v_next, updated_at = now() where id = p_user_id
+  returning * into v_user;
+  return public._game_user_json(v_user);
+end; $$;
+
+-- 领取每日任务奖励（服务端校验任务与金额）
+create or replace function public.game_claim_daily_task(p_user_id uuid, p_task_id text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_user public.users%rowtype;
+  v_state jsonb;
+  v_entry jsonb;
+  v_reward integer;
+  v_today text;
+begin
+  if p_user_id is null then raise exception 'invalid user_id'; end if;
+  v_reward := case trim(p_task_id)
+    when 'login' then 100
+    when 'goldrush_extract' then 300
+    when 'visit' then 100
+    when 'survival' then 200
+    when 'survival_30s' then 300
+    when 'survival_10_kills' then 200
+    else null
+  end;
+  if v_reward is null then raise exception '任务不存在'; end if;
+
+  select * into v_user from public.users where id = p_user_id for update;
+  if not found then raise exception 'user not found'; end if;
+
+  v_today := to_char((now() at time zone 'Asia/Shanghai')::date, 'YYYY-MM-DD');
+  v_state := coalesce(v_user.daily_tasks, '{}'::jsonb);
+  if coalesce(v_state->>'date', '') <> v_today then
+    raise exception '任务尚未完成';
+  end if;
+
+  v_entry := coalesce(v_state->'tasks'->trim(p_task_id), '{}'::jsonb);
+  if coalesce((v_entry->>'completed')::boolean, false) is not true then
+    raise exception '任务尚未完成';
+  end if;
+  if coalesce((v_entry->>'claimed')::boolean, false) is true then
+    raise exception '奖励已领取';
+  end if;
+
+  v_state := jsonb_set(
+    v_state,
+    array['tasks', trim(p_task_id), 'claimed'],
+    'true'::jsonb,
+    true
+  );
+
+  if v_user.ncut_coins + v_reward > 200000 then
+    raise exception 'ncut_coins exceeds max allowed';
+  end if;
+
+  update public.users
+  set
+    daily_tasks = v_state,
+    ncut_coins = v_user.ncut_coins + v_reward,
+    updated_at = now()
+  where id = p_user_id
+  returning * into v_user;
+
+  return public._game_user_json(v_user);
+end; $$;
+
+revoke all on function public.game_save_daily_tasks(uuid, jsonb) from public;
+revoke all on function public.game_set_coins(uuid, integer) from public;
+revoke all on function public.game_claim_daily_task(uuid, text) from public;
+grant execute on function public.game_save_daily_tasks(uuid, jsonb) to anon, authenticated;
+grant execute on function public.game_set_coins(uuid, integer) to anon, authenticated;
+grant execute on function public.game_claim_daily_task(uuid, text) to anon, authenticated;
+
+notify pgrst, 'reload schema';

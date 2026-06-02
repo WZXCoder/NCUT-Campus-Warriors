@@ -1,0 +1,413 @@
+-- 01-tables.sql：游戏表结构、索引、触发器、Realtime（不含 RLS，见 02-rls.sql）
+create extension if not exists "uuid-ossp";
+
+create table if not exists public.users (
+    id uuid primary key default uuid_generate_v4(),
+    auth_user_id uuid unique,
+    username text unique not null,
+    nickname text,
+    password_hash text not null,
+    avatar_color text default '#4A90D9',
+    ncut_coins integer not null default 3000,
+    current_skin_item_id text,
+    backpack_capacity integer not null default 50,
+    daily_tasks jsonb not null default '{}'::jsonb,
+    achievements jsonb not null default '{}'::jsonb,
+    achievement_stats jsonb not null default '{}'::jsonb,
+    bio text not null default '',
+    last_seen_at timestamptz not null default now(),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+-- 兼容你之前创建过的 users 表：去掉邮箱必填，并补齐游戏字段。
+alter table public.users add column if not exists nickname text;
+alter table public.users add column if not exists password_hash text;
+alter table public.users add column if not exists auth_user_id uuid;
+alter table public.users add column if not exists avatar_color text default '#4A90D9';
+alter table public.users add column if not exists ncut_coins integer not null default 3000;
+alter table public.users add column if not exists current_skin_item_id text;
+alter table public.users add column if not exists backpack_capacity integer not null default 50;
+alter table public.users add column if not exists daily_tasks jsonb not null default '{}'::jsonb;
+alter table public.users add column if not exists achievements jsonb not null default '{}'::jsonb;
+alter table public.users add column if not exists achievement_stats jsonb not null default '{}'::jsonb;
+alter table public.users add column if not exists bio text not null default '';
+alter table public.users add column if not exists last_seen_at timestamptz not null default now();
+alter table public.users add column if not exists updated_at timestamptz not null default now();
+alter table public.users alter column password_hash set not null;
+update public.users set nickname = username where nickname is null or trim(nickname) = '';
+do $$
+begin
+    if exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'users'
+          and column_name = 'email'
+    ) then
+        alter table public.users alter column email drop not null;
+    end if;
+end $$;
+
+create table if not exists public.items (
+    id text primary key,
+    type text not null,
+    name text not null,
+    price integer not null default 0,
+    value integer not null default 0,
+    asset_path text,
+    metadata jsonb not null default '{}'::jsonb
+);
+
+create table if not exists public.inventories (
+    user_id uuid not null,
+    item_id text not null,
+    quantity integer not null default 1,
+    metadata jsonb not null default '{}'::jsonb,
+    updated_at timestamptz not null default now(),
+    primary key (user_id, item_id)
+);
+
+create table if not exists public.game_runs (
+    id uuid primary key default uuid_generate_v4(),
+    user_id uuid not null,
+    mode text not null default 'goldrush',
+    status text not null,
+    carried_items jsonb not null default '[]'::jsonb,
+    looted_items jsonb not null default '[]'::jsonb,
+    survival_seconds integer not null default 0,
+    kills integer not null default 0,
+    created_at timestamptz not null default now(),
+    finished_at timestamptz
+);
+
+alter table public.game_runs add column if not exists survival_seconds integer not null default 0;
+alter table public.game_runs add column if not exists kills integer not null default 0;
+alter table public.game_runs add column if not exists survival_subtype text default 'solo';
+alter table public.game_runs add column if not exists team_members jsonb;
+alter table public.game_runs add column if not exists room_id uuid references public.game_rooms(id) on delete set null;
+
+create table if not exists public.friend_requests (
+    id uuid primary key default uuid_generate_v4(),
+    from_user_id uuid not null references public.users(id) on delete cascade,
+    to_user_id uuid not null references public.users(id) on delete cascade,
+    status text not null default 'pending',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (from_user_id, to_user_id)
+);
+
+create table if not exists public.friendships (
+    user_id uuid not null references public.users(id) on delete cascade,
+    friend_id uuid not null references public.users(id) on delete cascade,
+    created_at timestamptz not null default now(),
+    primary key (user_id, friend_id)
+);
+
+create table if not exists public.chat_messages (
+    id uuid primary key default uuid_generate_v4(),
+    from_user_id uuid not null references public.users(id) on delete cascade,
+    to_user_id uuid not null references public.users(id) on delete cascade,
+    content text not null,
+    created_at timestamptz not null default now()
+);
+
+alter table public.friend_requests add column if not exists updated_at timestamptz not null default now();
+
+-- 如果之前用 auth.users 建过外键，先移除再指向自建 users 表。
+alter table public.inventories drop constraint if exists inventories_user_id_fkey;
+alter table public.game_runs drop constraint if exists game_runs_user_id_fkey;
+alter table public.inventories
+    add constraint inventories_user_id_fkey foreign key (user_id) references public.users(id) on delete cascade;
+alter table public.game_runs
+    add constraint game_runs_user_id_fkey foreign key (user_id) references public.users(id) on delete cascade;
+
+create index if not exists idx_users_username on public.users(username);
+create unique index if not exists idx_users_auth_user_id on public.users(auth_user_id) where auth_user_id is not null;
+create index if not exists idx_inventories_user_id on public.inventories(user_id);
+create index if not exists idx_game_runs_user_id on public.game_runs(user_id);
+create index if not exists idx_friend_requests_to_user on public.friend_requests(to_user_id, status);
+create index if not exists idx_friendships_user_id on public.friendships(user_id);
+create index if not exists idx_chat_messages_pair on public.chat_messages(from_user_id, to_user_id, created_at desc);
+
+-- ========== 多人房间（参观 Presence + 摸金匹配） ==========
+create table if not exists public.game_rooms (
+    id uuid primary key default uuid_generate_v4(),
+    mode text not null default 'goldrush',
+    status text not null default 'open',
+    max_players integer not null default 10,
+    player_count integer not null default 0,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create table if not exists public.game_room_members (
+    room_id uuid not null references public.game_rooms(id) on delete cascade,
+    user_id uuid not null references public.users(id) on delete cascade,
+    nickname text not null default '',
+    status text not null default 'active',
+    joined_at timestamptz not null default now(),
+    left_at timestamptz,
+    primary key (room_id, user_id)
+);
+
+create index if not exists idx_game_rooms_mode_status on public.game_rooms(mode, status, player_count);
+create index if not exists idx_game_room_members_room on public.game_room_members(room_id, status);
+
+-- 玩家位置同步（自建登录无 Supabase Auth 时，用 DB + Realtime postgres_changes / 轮询）
+create table if not exists public.player_presence (
+    user_id uuid primary key references public.users(id) on delete cascade,
+    mode text not null,
+    room_id uuid references public.game_rooms(id) on delete cascade,
+    nickname text not null default '',
+    x double precision not null default 0,
+    y double precision not null default 0,
+    hp integer not null default 100,
+    max_hp integer not null default 100,
+    status text not null default 'active',
+    skin_color text default '#4A90D9',
+    skin_item_id text,
+    updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_player_presence_mode_room on public.player_presence(mode, room_id, updated_at desc);
+
+-- 将 player_presence 加入 Realtime publication（postgres_changes 推送；未配置时客户端仍会轮询 DB）
+do $$
+begin
+    if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+        if not exists (
+            select 1
+            from pg_publication_tables
+            where pubname = 'supabase_realtime'
+              and schemaname = 'public'
+              and tablename = 'player_presence'
+        ) then
+            alter publication supabase_realtime add table public.player_presence;
+        end if;
+    end if;
+exception when others then
+    raise notice 'player_presence publication skipped: %', sqlerrm;
+end $$;
+
+-- Realtime Broadcast 授权（PVP 伤害广播；若报错可忽略，不影响 DB 位置同步）
+do $$
+begin
+    if exists (
+        select 1 from information_schema.tables
+        where table_schema = 'realtime' and table_name = 'messages'
+    ) then
+        execute 'drop policy if exists "realtime messages public" on realtime.messages';
+        execute 'create policy "realtime messages public" on realtime.messages as permissive for all to public using (true) with check (true)';
+    end if;
+exception when others then
+    raise notice 'realtime.messages policy skipped: %', sqlerrm;
+end $$;
+
+create table if not exists public.game_room_npcs (
+    id uuid primary key default uuid_generate_v4(),
+    room_id uuid not null references public.game_rooms(id) on delete cascade,
+    name text not null default 'NPC',
+    x double precision not null default 0,
+    y double precision not null default 0,
+    hp integer not null default 30,
+    max_hp integer not null default 30,
+    attack integer not null default 5,
+    attack_range double precision not null default 15,
+    speed double precision not null default 0.3,
+    attack_interval integer not null default 600,
+    image_index integer not null default 0,
+    last_attack_at bigint not null default 0,
+    stunned_until bigint not null default 0,
+    rooted_until bigint not null default 0,
+    provoke_until bigint not null default 0,
+    provoke_target_id uuid,
+    updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_game_room_npcs_room on public.game_room_npcs(room_id);
+
+-- ========= 关键字段写入保护（触发器）（无 Auth 场景） =========
+-- 说明：在仍允许匿名写库的前提下，至少防止 ncut_coins 被一次性改成离谱数值，
+-- 并禁止修改 password_hash 等敏感字段。长期方案应迁移到 Auth/RPC/Edge Functions。
+
+create or replace function public._guard_users_update()
+returns trigger
+language plpgsql
+as $$
+declare
+  delta_coins integer;
+begin
+  -- 禁止修改密码（避免直接接管账号）
+  if new.password_hash is distinct from old.password_hash then
+    if current_user <> 'service_role' then
+      raise exception 'password_hash cannot be updated';
+    end if;
+  end if;
+
+  -- 基本合法性
+  if new.ncut_coins is null or new.ncut_coins < 0 then
+    raise exception 'ncut_coins must be >= 0';
+  end if;
+
+  -- 非 service_role：只允许改“非敏感字段”，严禁改币/背包/成就等关键字段
+  if current_user <> 'service_role' then
+    if new.ncut_coins is distinct from old.ncut_coins then
+      raise exception 'ncut_coins cannot be updated';
+    end if;
+    if new.backpack_capacity is distinct from old.backpack_capacity then
+      raise exception 'backpack_capacity cannot be updated';
+    end if;
+    if new.daily_tasks is distinct from old.daily_tasks then
+      raise exception 'daily_tasks cannot be updated';
+    end if;
+    if new.achievements is distinct from old.achievements then
+      raise exception 'achievements cannot be updated';
+    end if;
+    if new.achievement_stats is distinct from old.achievement_stats then
+      raise exception 'achievement_stats cannot be updated';
+    end if;
+    if new.created_at is distinct from old.created_at then
+      raise exception 'created_at cannot be updated';
+    end if;
+  else
+    -- service_role：仍保留合理的经济上限与单次变化限制（防止误操作/脚本跑飞）
+    if new.ncut_coins > 200000 then
+      raise exception 'ncut_coins exceeds max allowed';
+    end if;
+    delta_coins := new.ncut_coins - old.ncut_coins;
+    if abs(delta_coins) > 5000 then
+      raise exception 'ncut_coins delta too large';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_users_update on public.users;
+create trigger trg_guard_users_update
+before update on public.users
+for each row
+execute function public._guard_users_update();
+
+-- ========= 轻量防爆：inventories / game_runs 写入保护（不改变现有 RLS，尽量不影响体验） =========
+-- 目标：在匿名写库仍开启的情况下，阻止“离谱数值/伪造外键/巨型 payload”把表写爆。
+
+create or replace function public._guard_inventories_write()
+returns trigger
+language plpgsql
+as $$
+declare
+  max_qty integer := 999;
+begin
+  -- user_id / item_id 必须存在（防止伪造写入）
+  if not exists (select 1 from public.users u where u.id = new.user_id) then
+    raise exception 'invalid user_id';
+  end if;
+  if not exists (select 1 from public.items i where i.id = new.item_id) then
+    raise exception 'invalid item_id';
+  end if;
+
+  if new.quantity is null or new.quantity < 0 then
+    raise exception 'quantity must be >= 0';
+  end if;
+  if new.quantity > max_qty then
+    raise exception 'quantity too large';
+  end if;
+
+  -- 禁止更新主键字段（防止把别人的背包挪到自己名下）
+  if tg_op = 'UPDATE' then
+    if new.user_id is distinct from old.user_id or new.item_id is distinct from old.item_id then
+      raise exception 'cannot change inventory primary key';
+    end if;
+  end if;
+
+  -- 更新节奏统一
+  new.updated_at := now();
+
+  -- 限制 metadata 体积（避免塞超大 JSON）
+  if length(coalesce(new.metadata::text, '')) > 4000 then
+    raise exception 'metadata too large';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_inventories_write on public.inventories;
+create trigger trg_guard_inventories_write
+before insert or update on public.inventories
+for each row
+execute function public._guard_inventories_write();
+
+create or replace function public._guard_game_runs_write()
+returns trigger
+language plpgsql
+as $$
+declare
+  carried_len integer;
+  looted_len integer;
+begin
+  if not exists (select 1 from public.users u where u.id = new.user_id) then
+    raise exception 'invalid user_id';
+  end if;
+
+  -- 禁止更改归属与创建时间
+  if tg_op = 'UPDATE' then
+    if new.user_id is distinct from old.user_id then
+      raise exception 'cannot change user_id';
+    end if;
+    if new.created_at is distinct from old.created_at then
+      raise exception 'cannot change created_at';
+    end if;
+  end if;
+
+  -- 数值边界（防止写爆排行榜/统计）
+  if new.survival_seconds is null or new.survival_seconds < 0 or new.survival_seconds > 7200 then
+    raise exception 'invalid survival_seconds';
+  end if;
+  if new.kills is null or new.kills < 0 or new.kills > 500 then
+    raise exception 'invalid kills';
+  end if;
+
+  -- JSON 数组体积限制
+  carried_len := coalesce(jsonb_array_length(new.carried_items), 0);
+  looted_len := coalesce(jsonb_array_length(new.looted_items), 0);
+  if carried_len > 120 or looted_len > 200 then
+    raise exception 'items payload too large';
+  end if;
+
+  -- 字段体积限制（避免超大 JSON）
+  if length(coalesce(new.carried_items::text, '')) > 20000 then
+    raise exception 'carried_items too large';
+  end if;
+  if length(coalesce(new.looted_items::text, '')) > 30000 then
+    raise exception 'looted_items too large';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_game_runs_write on public.game_runs;
+create trigger trg_guard_game_runs_write
+before insert or update on public.game_runs
+for each row
+execute function public._guard_game_runs_write();
+
+do $$
+begin
+    if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+        if not exists (
+            select 1 from pg_publication_tables
+            where pubname = 'supabase_realtime'
+              and schemaname = 'public'
+              and tablename = 'game_room_npcs'
+        ) then
+            alter publication supabase_realtime add table public.game_room_npcs;
+        end if;
+    end if;
+exception when others then
+    raise notice 'game_room_npcs publication skipped: %', sqlerrm;
+end $$;

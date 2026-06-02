@@ -21,7 +21,7 @@
         if (error) {
             const msg = error.message || '';
             if (msg.includes('issue_captcha') || msg.includes('Could not find')) {
-                throw new Error('请先在 Supabase 执行 supabase-captcha-auth.sql');
+                throw new Error('请先在 Supabase 按 sql/README.md 执行 01→02→03');
             }
             throw new Error(msg);
         }
