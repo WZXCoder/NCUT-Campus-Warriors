@@ -368,6 +368,111 @@ before update on public.users
 for each row
 execute function public._guard_users_update();
 
+-- ========= 轻量防爆：inventories / game_runs 写入保护（不改变现有 RLS，尽量不影响体验） =========
+-- 目标：在匿名写库仍开启的情况下，阻止“离谱数值/伪造外键/巨型 payload”把表写爆。
+
+create or replace function public._guard_inventories_write()
+returns trigger
+language plpgsql
+as $$
+declare
+  max_qty integer := 999;
+begin
+  -- user_id / item_id 必须存在（防止伪造写入）
+  if not exists (select 1 from public.users u where u.id = new.user_id) then
+    raise exception 'invalid user_id';
+  end if;
+  if not exists (select 1 from public.items i where i.id = new.item_id) then
+    raise exception 'invalid item_id';
+  end if;
+
+  if new.quantity is null or new.quantity < 0 then
+    raise exception 'quantity must be >= 0';
+  end if;
+  if new.quantity > max_qty then
+    raise exception 'quantity too large';
+  end if;
+
+  -- 禁止更新主键字段（防止把别人的背包挪到自己名下）
+  if tg_op = 'UPDATE' then
+    if new.user_id is distinct from old.user_id or new.item_id is distinct from old.item_id then
+      raise exception 'cannot change inventory primary key';
+    end if;
+  end if;
+
+  -- 更新节奏统一
+  new.updated_at := now();
+
+  -- 限制 metadata 体积（避免塞超大 JSON）
+  if length(coalesce(new.metadata::text, '')) > 4000 then
+    raise exception 'metadata too large';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_inventories_write on public.inventories;
+create trigger trg_guard_inventories_write
+before insert or update on public.inventories
+for each row
+execute function public._guard_inventories_write();
+
+create or replace function public._guard_game_runs_write()
+returns trigger
+language plpgsql
+as $$
+declare
+  carried_len integer;
+  looted_len integer;
+begin
+  if not exists (select 1 from public.users u where u.id = new.user_id) then
+    raise exception 'invalid user_id';
+  end if;
+
+  -- 禁止更改归属与创建时间
+  if tg_op = 'UPDATE' then
+    if new.user_id is distinct from old.user_id then
+      raise exception 'cannot change user_id';
+    end if;
+    if new.created_at is distinct from old.created_at then
+      raise exception 'cannot change created_at';
+    end if;
+  end if;
+
+  -- 数值边界（防止写爆排行榜/统计）
+  if new.survival_seconds is null or new.survival_seconds < 0 or new.survival_seconds > 7200 then
+    raise exception 'invalid survival_seconds';
+  end if;
+  if new.kills is null or new.kills < 0 or new.kills > 500 then
+    raise exception 'invalid kills';
+  end if;
+
+  -- JSON 数组体积限制
+  carried_len := coalesce(jsonb_array_length(new.carried_items), 0);
+  looted_len := coalesce(jsonb_array_length(new.looted_items), 0);
+  if carried_len > 120 or looted_len > 200 then
+    raise exception 'items payload too large';
+  end if;
+
+  -- 字段体积限制（避免超大 JSON）
+  if length(coalesce(new.carried_items::text, '')) > 20000 then
+    raise exception 'carried_items too large';
+  end if;
+  if length(coalesce(new.looted_items::text, '')) > 30000 then
+    raise exception 'looted_items too large';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_game_runs_write on public.game_runs;
+create trigger trg_guard_game_runs_write
+before insert or update on public.game_runs
+for each row
+execute function public._guard_game_runs_write();
+
 do $$
 begin
     if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then

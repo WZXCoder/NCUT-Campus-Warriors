@@ -960,6 +960,8 @@
             const collectionValues = {};
             if (!invRows.error) {
                 invRows.data.forEach(row => {
+                    // 只统计能在 users 中找到的用户，避免“孤儿 inventories”导致排行榜出现 UUID
+                    if (!displayNameById[row.user_id]) return;
                     const item = assets.getItemById(row.item_id);
                     if (!item?.collectionValue) return;
                     collectionValues[row.user_id] = (collectionValues[row.user_id] || 0) + item.collectionValue * row.quantity;
@@ -978,7 +980,7 @@
                 skins: Object.entries(collectionValues)
                     .map(([userId, value]) => ({
                         userId,
-                        nickname: displayNameById[userId] || userId,
+                        nickname: displayNameById[userId],
                         value,
                     }))
                     .sort((a, b) => b.value - a.value)
