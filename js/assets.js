@@ -1,5 +1,9 @@
 (function(global) {
-    const ASSET_BASE_URL = 'https://lwybcgloshymklseaysk.supabase.co/storage/v1/object/public/game-assets';
+    const runtimeCfg = global.NCUT_RUNTIME_CONFIG || {};
+    const supabaseUrl = (runtimeCfg.SUPABASE_URL || '').replace(/\/$/, '');
+    const ASSET_BASE_URL =
+        runtimeCfg.ASSET_BASE_URL ||
+        (supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/game-assets` : '');
     const DEFAULT_SKIN_PATH = `${ASSET_BASE_URL}/origin/1_universal.png`;
     const DEFAULT_SKIN = {
         id: 'skin_default',

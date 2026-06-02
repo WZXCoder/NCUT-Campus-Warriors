@@ -3,8 +3,14 @@
  * 用法: node scripts/loadtest-supabase.mjs
  */
 
-const SUPABASE_URL = 'https://lwybcgloshymklseaysk.supabase.co';
-const ANON_KEY = 'sb_publishable_TwqUBHPZSWtgUzGrfIXFug_vTvyNPQf';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+
+if (!SUPABASE_URL || !ANON_KEY) {
+    console.error('缺少环境变量: SUPABASE_URL / SUPABASE_ANON_KEY');
+    console.error('示例: SUPABASE_URL=... SUPABASE_ANON_KEY=... node scripts/loadtest-supabase.mjs');
+    process.exit(1);
+}
 
 const headers = {
     apikey: ANON_KEY,

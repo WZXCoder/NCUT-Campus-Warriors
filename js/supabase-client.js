@@ -1,20 +1,27 @@
 (function(global) {
-    const SUPABASE_URL = 'https://lwybcgloshymklseaysk.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_TwqUBHPZSWtgUzGrfIXFug_vTvyNPQf';
+    function getRuntimeConfig() {
+        const cfg = global.NCUT_RUNTIME_CONFIG || {};
+        return {
+            SUPABASE_URL: cfg.SUPABASE_URL || '',
+            SUPABASE_ANON_KEY: cfg.SUPABASE_ANON_KEY || '',
+        };
+    }
 
     let sharedClient = null;
 
     function hasConfig() {
+        const { SUPABASE_URL, SUPABASE_ANON_KEY } = getRuntimeConfig();
         return (
             SUPABASE_URL &&
             SUPABASE_ANON_KEY &&
-            !SUPABASE_URL.includes('YOUR_') &&
-            !SUPABASE_ANON_KEY.includes('YOUR_') &&
+            !SUPABASE_URL.includes('__SUPABASE_URL__') &&
+            !SUPABASE_ANON_KEY.includes('__SUPABASE_ANON_KEY__') &&
             global.supabase
         );
     }
 
     function createClient() {
+        const { SUPABASE_URL, SUPABASE_ANON_KEY } = getRuntimeConfig();
         if (!hasConfig()) return null;
         if (!sharedClient) {
             sharedClient = global.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -31,8 +38,7 @@
     global.NCUTMap = {
         ...global.NCUTMap,
         supabaseConfig: {
-            SUPABASE_URL,
-            SUPABASE_ANON_KEY,
+            getRuntimeConfig,
             hasConfig,
             createClient,
         },

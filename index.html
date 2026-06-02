@@ -21,6 +21,14 @@
             if (mobile) document.documentElement.classList.add('mobile-device');
         })();
     </script>
+    <script>
+        // 构建时由 scripts/inject-env.mjs 注入（仓库内只保留占位符，避免泄露）
+        window.NCUT_RUNTIME_CONFIG = {
+            SUPABASE_URL: '__SUPABASE_URL__',
+            SUPABASE_ANON_KEY: '__SUPABASE_ANON_KEY__',
+            ASSET_BASE_URL: '__ASSET_BASE_URL__',
+        };
+    </script>
 </head>
 <body>
     <div id="landscape-hint" class="landscape-hint hidden" aria-live="polite">

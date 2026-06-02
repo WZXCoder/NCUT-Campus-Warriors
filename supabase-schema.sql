@@ -304,6 +304,70 @@ drop policy if exists "game room npcs public all" on public.game_room_npcs;
 create policy "game room npcs public all" on public.game_room_npcs
     for all using (true) with check (true);
 
+-- ========= 紧急止血：关键字段写入保护（无 Auth 场景） =========
+-- 说明：在仍允许匿名写库的前提下，至少防止 ncut_coins 被一次性改成离谱数值，
+-- 并禁止修改 password_hash 等敏感字段。长期方案应迁移到 Auth/RPC/Edge Functions。
+
+create or replace function public._guard_users_update()
+returns trigger
+language plpgsql
+as $$
+declare
+  delta_coins integer;
+begin
+  -- 禁止修改密码（避免直接接管账号）
+  if new.password_hash is distinct from old.password_hash then
+    if current_user <> 'service_role' then
+      raise exception 'password_hash cannot be updated';
+    end if;
+  end if;
+
+  -- 基本合法性
+  if new.ncut_coins is null or new.ncut_coins < 0 then
+    raise exception 'ncut_coins must be >= 0';
+  end if;
+
+  -- 非 service_role：只允许改“非敏感字段”，严禁改币/背包/成就等关键字段
+  if current_user <> 'service_role' then
+    if new.ncut_coins is distinct from old.ncut_coins then
+      raise exception 'ncut_coins cannot be updated';
+    end if;
+    if new.backpack_capacity is distinct from old.backpack_capacity then
+      raise exception 'backpack_capacity cannot be updated';
+    end if;
+    if new.daily_tasks is distinct from old.daily_tasks then
+      raise exception 'daily_tasks cannot be updated';
+    end if;
+    if new.achievements is distinct from old.achievements then
+      raise exception 'achievements cannot be updated';
+    end if;
+    if new.achievement_stats is distinct from old.achievement_stats then
+      raise exception 'achievement_stats cannot be updated';
+    end if;
+    if new.created_at is distinct from old.created_at then
+      raise exception 'created_at cannot be updated';
+    end if;
+  else
+    -- service_role：仍保留合理的经济上限与单次变化限制（防止误操作/脚本跑飞）
+    if new.ncut_coins > 200000 then
+      raise exception 'ncut_coins exceeds max allowed';
+    end if;
+    delta_coins := new.ncut_coins - old.ncut_coins;
+    if abs(delta_coins) > 5000 then
+      raise exception 'ncut_coins delta too large';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_users_update on public.users;
+create trigger trg_guard_users_update
+before update on public.users
+for each row
+execute function public._guard_users_update();
+
 do $$
 begin
     if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
