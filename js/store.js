@@ -194,31 +194,27 @@
         return local.currentUser;
     }
 
-    async function signUp(username, password) {
+    async function signUp(username, password, options = {}) {
         username = username.trim();
         if (username.length < 2) throw new Error('用户名至少需要2个字符');
         if (password.length < 6) throw new Error('密码至少需要6位');
 
         if (supabase) {
-            const existing = await getSupabaseUserByName(username);
-            if (existing) throw new Error('用户名已存在');
-            const { data, error } = await supabase
-                .from('users')
-                .insert({
-                    username,
-                    nickname: username,
-                    bio: '',
-                    password_hash: hashPassword(username, password),
-                    ncut_coins: DEFAULT_COINS,
-                    current_skin_item_id: null,
-                    backpack_capacity: DEFAULT_BACKPACK_CAPACITY,
-                    daily_tasks: normalizeDailyTasks(),
-                    achievements: normalizeAchievements(),
-                    achievement_stats: normalizeAchievementStats(),
-                })
-                .select(USER_SELECT_COLUMNS)
-                .single();
-            if (error) throw new Error(error.message);
+            const { SUPABASE_URL, SUPABASE_ANON_KEY } = supabaseConfig.getRuntimeConfig();
+            const turnstileToken = options?.turnstileToken || '';
+            const res = await fetch(`${SUPABASE_URL.replace(/\\/$/, '')}/functions/v1/signup`, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    apikey: SUPABASE_ANON_KEY,
+                    authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                },
+                body: JSON.stringify({ username, password, turnstileToken }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(payload?.error || '注册失败');
+            const data = payload?.user;
+            if (!data?.id) throw new Error('注册失败：返回数据异常');
             await ensureStarterInventory(data.id);
             local.db.currentUserId = data.id;
             saveLocalDb();

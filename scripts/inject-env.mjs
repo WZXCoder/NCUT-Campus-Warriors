@@ -26,6 +26,7 @@ const supabaseAnonKey = required('SUPABASE_ANON_KEY');
 const assetBaseUrl =
   process.env.ASSET_BASE_URL ||
   `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/game-assets`;
+const turnstileSiteKey = required('TURNSTILE_SITE_KEY');
 
 const rootDir = path.resolve(new URL('..', import.meta.url).pathname);
 const templatePath = path.join(rootDir, 'index.html');
@@ -35,6 +36,7 @@ const replacements = {
   __SUPABASE_URL__: escapeForHtmlAttr(supabaseUrl),
   __SUPABASE_ANON_KEY__: escapeForHtmlAttr(supabaseAnonKey),
   __ASSET_BASE_URL__: escapeForHtmlAttr(assetBaseUrl),
+  __TURNSTILE_SITE_KEY__: escapeForHtmlAttr(turnstileSiteKey),
 };
 
 for (const [key, value] of Object.entries(replacements)) {

@@ -156,11 +156,26 @@ drop policy if exists "chat messages public all" on public.chat_messages;
 create policy "users public select" on public.users
     for select using (true);
 
-create policy "users public insert" on public.users
-    for insert with check (true);
+-- 生产环境：禁止匿名脚本直接写 users；只允许 service_role（Edge Function / 后端）写入。
+create policy "users service insert" on public.users
+    for insert with check (auth.role() = 'service_role');
 
-create policy "users public update" on public.users
-    for update using (true);
+create policy "users service update" on public.users
+    for update using (auth.role() = 'service_role');
+
+-- 注册限流：仅 service_role 可读写（由 Edge Function 基于 IP 控制注册频率）
+create table if not exists public.signup_rate_limits (
+    bucket text primary key,
+    ip text not null,
+    hour_start timestamptz not null,
+    count integer not null default 0,
+    updated_at timestamptz not null default now()
+);
+
+alter table public.signup_rate_limits enable row level security;
+drop policy if exists "signup_rate_limits service all" on public.signup_rate_limits;
+create policy "signup_rate_limits service all" on public.signup_rate_limits
+    for all using (auth.role() = 'service_role') with check (auth.role() = 'service_role');
 
 create policy "items are readable" on public.items
     for select using (true);

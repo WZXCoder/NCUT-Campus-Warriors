@@ -807,7 +807,12 @@
                 if (password.length < 6) {
                     throw new Error('密码至少需要6位');
                 }
-                const { user } = await auth.signUp(username, password);
+                const turnstileToken =
+                    document.querySelector('input[name="cf-turnstile-response"]')?.value?.trim() || '';
+                if (!turnstileToken) {
+                    throw new Error('请先完成安全验证');
+                }
+                const { user } = await auth.signUp(username, password, { turnstileToken });
                 if (user) {
                     await showLobby();
                 }
