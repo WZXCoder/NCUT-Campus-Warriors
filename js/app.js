@@ -797,13 +797,56 @@
             ui.toast(`生存开始（${(survival.SURVIVAL_MODE_CONFIG[playMode] || modeConfig).label}）：L 拾取，K 攻击，I 释放「${activeName}」｜被动「${passiveName}」`);
         }
 
+        const loginCaptcha = { id: null, digits: '' };
+        const registerCaptcha = { id: null, digits: '' };
+
+        async function refreshLoginCaptcha() {
+            const display = document.getElementById('login-captcha-display');
+            const input = document.getElementById('login-captcha-input');
+            try {
+                display.textContent = '....';
+                const c = await global.NCUTMap.captcha.issueCaptcha();
+                loginCaptcha.id = c.id;
+                loginCaptcha.digits = c.digits;
+                display.textContent = c.digits;
+                if (input) input.value = '';
+            } catch (e) {
+                display.textContent = '失败';
+                loginCaptcha.id = null;
+                throw e;
+            }
+        }
+
+        async function refreshRegisterCaptcha() {
+            const display = document.getElementById('register-captcha-display');
+            const input = document.getElementById('register-captcha-input');
+            try {
+                display.textContent = '....';
+                const c = await global.NCUTMap.captcha.issueCaptcha();
+                registerCaptcha.id = c.id;
+                registerCaptcha.digits = c.digits;
+                display.textContent = c.digits;
+                if (input) input.value = '';
+            } catch (e) {
+                display.textContent = '失败';
+                registerCaptcha.id = null;
+                throw e;
+            }
+        }
+
         async function handleLogin(username, password) {
             const errEl = document.getElementById('login-error');
             errEl.textContent = '';
             try {
-                const { user } = await auth.signIn(username, password);
+                if (!loginCaptcha.id) await refreshLoginCaptcha();
+                const captchaCode = document.getElementById('login-captcha-input')?.value?.trim() || '';
+                const { user } = await auth.signIn(username, password, {
+                    captchaId: loginCaptcha.id,
+                    captchaCode,
+                });
                 if (!user) {
                     errEl.textContent = '登录失败：未获取到用户档案';
+                    await refreshLoginCaptcha();
                     return;
                 }
                 try {
@@ -814,21 +857,23 @@
                 }
             } catch (error) {
                 errEl.textContent = error.message || String(error);
+                await refreshLoginCaptcha().catch(() => null);
             }
         }
 
-        async function handleRegister(email, username, password) {
+        async function handleRegister(username, password) {
             const errEl = document.getElementById('register-error');
             errEl.textContent = '';
             try {
                 if (password.length < 6) {
                     throw new Error('密码至少需要6位');
                 }
-                const { user, pendingEmailVerification } = await auth.signUp(email, password, { username });
-                if (pendingEmailVerification) {
-                    errEl.textContent = '已发送验证邮件，请先去邮箱点「Confirm」完成验证，再用邮箱+密码登录。';
-                    return;
-                }
+                if (!registerCaptcha.id) await refreshRegisterCaptcha();
+                const captchaCode = document.getElementById('register-captcha-input')?.value?.trim() || '';
+                const { user } = await auth.signUp(username, password, {
+                    captchaId: registerCaptcha.id,
+                    captchaCode,
+                });
                 if (user) {
                     try {
                         await showLobby();
@@ -838,6 +883,7 @@
                 }
             } catch (error) {
                 errEl.textContent = error.message || String(error);
+                await refreshRegisterCaptcha().catch(() => null);
             }
         }
 
@@ -924,6 +970,9 @@
             document.getElementById('login-form').classList.remove('hidden');
             document.getElementById('register-form').classList.add('hidden');
             document.getElementById('login-error').textContent = '';
+            refreshLoginCaptcha().catch(e => {
+                document.getElementById('login-error').textContent = e.message;
+            });
         });
 
         document.getElementById('register-tab').addEventListener('click', () => {
@@ -932,6 +981,20 @@
             document.getElementById('register-form').classList.remove('hidden');
             document.getElementById('login-form').classList.add('hidden');
             document.getElementById('register-error').textContent = '';
+            refreshRegisterCaptcha().catch(e => {
+                document.getElementById('register-error').textContent = e.message;
+            });
+        });
+
+        document.getElementById('login-captcha-refresh')?.addEventListener('click', () => {
+            refreshLoginCaptcha().catch(e => {
+                document.getElementById('login-error').textContent = e.message;
+            });
+        });
+        document.getElementById('register-captcha-refresh')?.addEventListener('click', () => {
+            refreshRegisterCaptcha().catch(e => {
+                document.getElementById('register-error').textContent = e.message;
+            });
         });
 
         document.getElementById('login-form').addEventListener('submit', (e) => {
@@ -943,10 +1006,9 @@
 
         document.getElementById('register-form').addEventListener('submit', (e) => {
             e.preventDefault();
-            const email = document.getElementById('register-email').value;
             const username = document.getElementById('register-username').value;
             const password = document.getElementById('register-password').value;
-            handleRegister(email, username, password);
+            handleRegister(username, password);
         });
 
         logoutBtn.addEventListener('click', handleLogout);
@@ -1125,6 +1187,9 @@
             await showLobby();
         } else {
             setView('auth');
+            refreshLoginCaptcha().catch(e => {
+                document.getElementById('login-error').textContent = e.message;
+            });
         }
 
         console.log('校园摸金游戏已就绪');

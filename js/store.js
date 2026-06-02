@@ -81,46 +81,16 @@
         };
     }
 
-    const PENDING_USERNAME_KEY = 'ncut_pending_username_v1';
-
-    async function getAccessToken() {
-        if (!supabase) return '';
-        const { data } = await supabase.auth.getSession();
-        return data?.session?.access_token || '';
+    function getDeviceId() {
+        return global.NCUTMap.captcha?.getDeviceId?.() || '';
     }
 
-    async function fetchFunction(path, body, options = {}) {
-        const { SUPABASE_URL, SUPABASE_ANON_KEY } = supabaseConfig.getRuntimeConfig();
-        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-            throw new Error('未配置 SUPABASE_URL / SUPABASE_ANON_KEY');
+    function mapRpcAuthError(error) {
+        const msg = error?.message || error?.details || '';
+        if (msg.includes('auth_login') || msg.includes('auth_register') || msg.includes('issue_captcha') || msg.includes('Could not find')) {
+            throw new Error('请先在 Supabase SQL Editor 执行 supabase-captcha-auth.sql');
         }
-        const token = options.accessToken || (await getAccessToken());
-        const res = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${path}`, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                apikey: SUPABASE_ANON_KEY,
-                authorization: token ? `Bearer ${token}` : `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify(body || {}),
-        });
-        const raw = await res.text();
-        let payload = {};
-        try {
-            payload = raw ? JSON.parse(raw) : {};
-        } catch {
-            payload = {};
-        }
-        if (!res.ok) {
-            const detail = payload?.error || payload?.message || raw?.slice(0, 200) || `HTTP ${res.status}`;
-            throw new Error(detail);
-        }
-        return payload;
-    }
-
-    function usernameFromEmail(email) {
-        const local = (email.split('@')[0] || 'player').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5]/g, '');
-        return local.length >= 2 ? local.slice(0, 20) : `player${Date.now().toString(36).slice(-6)}`;
+        throw new Error(msg || '请求失败');
     }
 
     async function finishLoginWithProfile(user) {
@@ -142,114 +112,6 @@
             console.warn('[login] recordLoginAchievement skipped:', e?.message || e);
         }
         return { user: local.currentUser };
-    }
-
-    async function legacyLogin(username, password) {
-        const { data, error } = await supabase.rpc('legacy_login', {
-            p_username: username,
-            p_password: password,
-        });
-        if (!error && data) return data;
-        const rpcMsg = error?.message || error?.details || '';
-        if (
-            rpcMsg.includes('legacy_login') ||
-            rpcMsg.includes('does not exist') ||
-            rpcMsg.includes('Could not find the function')
-        ) {
-            throw new Error('请先在 Supabase SQL Editor 执行项目里的 supabase-auth-rpc.sql');
-        }
-        if (rpcMsg) throw new Error(rpcMsg);
-        try {
-            const legacy = await fetchFunction('legacy-login', { username, password });
-            return legacy?.user || null;
-        } catch (fnErr) {
-            throw fnErr;
-        }
-    }
-
-    async function ensureGameProfile(username) {
-        const { data, error } = await supabase.rpc('ensure_game_profile', {
-            p_username: username || null,
-        });
-        if (!error && data) return data;
-        const rpcMsg = error?.message || error?.details || '';
-        if (
-            rpcMsg.includes('ensure_game_profile') ||
-            rpcMsg.includes('does not exist') ||
-            rpcMsg.includes('Could not find the function')
-        ) {
-            throw new Error('请先在 Supabase SQL Editor 执行项目里的 supabase-auth-rpc.sql');
-        }
-        if (rpcMsg) throw new Error(rpcMsg);
-        const created = await fetchFunction(
-            'create-profile',
-            { username },
-            { accessToken: (await getAccessToken()) || undefined },
-        );
-        return created?.user || null;
-    }
-
-    async function getSupabaseUserByAuthId(authUserId) {
-        const { data, error } = await supabase
-            .from('users')
-            .select(USER_SELECT_COLUMNS)
-            .eq('auth_user_id', authUserId)
-            .maybeSingle();
-        if (error) throw new Error(error.message);
-        return data;
-    }
-
-    async function ensureProfileForAuthSession(options = {}) {
-        if (!supabase) return null;
-        const { data } = await supabase.auth.getSession();
-        const session = data?.session;
-        const authUser = session?.user;
-        if (!authUser?.id) return null;
-
-        const linked = await getSupabaseUserByAuthId(authUser.id);
-        if (linked?.id) {
-            local.db.currentUserId = linked.id;
-            saveLocalDb();
-            local.currentUser = sanitizeUser(linked);
-            return local.currentUser;
-        }
-
-        const pendingUsername = (localStorage.getItem(PENDING_USERNAME_KEY) || '').trim();
-        const metaUsername = (authUser.user_metadata?.username || '').trim();
-        const username =
-            pendingUsername ||
-            metaUsername ||
-            (authUser.email ? usernameFromEmail(authUser.email) : '');
-
-        if (username.length >= 2) {
-            const user = await ensureGameProfile(username);
-            localStorage.removeItem(PENDING_USERNAME_KEY);
-            if (user?.id) {
-                local.db.currentUserId = user.id;
-                saveLocalDb();
-                local.currentUser = sanitizeUser(user);
-                return local.currentUser;
-            }
-        }
-
-        if (options.silent) return null;
-        throw new Error(
-            '邮箱已登录，但尚未创建游戏档案。请重新注册并填写用户名，或使用「用户名+密码」登录旧账号后再绑定邮箱。',
-        );
-    }
-
-    async function linkLegacyToCurrentAuth(username, password) {
-        const { data } = await supabase.auth.getSession();
-        const token = data?.session?.access_token;
-        if (!token) throw new Error('请先使用邮箱登录后再绑定旧账号');
-        const linkedRes = await fetchFunction(
-            'link-legacy',
-            { username: username.trim(), password },
-            { accessToken: token },
-        );
-        const user = linkedRes?.user;
-        if (!user?.id) throw new Error('绑定失败');
-        return finishLoginWithProfile(user);
     }
 
     function getChinaDateKey(date = new Date()) {
@@ -370,28 +232,25 @@
         return local.currentUser;
     }
 
-    async function signUp(email, password, options = {}) {
-        email = (email || '').trim();
-        const username = (options?.username || '').trim();
-        if (!email || !email.includes('@')) throw new Error('请输入有效邮箱');
+    async function signUp(username, password, options = {}) {
+        username = (username || '').trim();
+        const captchaId = options.captchaId;
+        const captchaCode = (options.captchaCode || '').trim();
         if (username.length < 2) throw new Error('用户名至少需要2个字符');
         if (password.length < 6) throw new Error('密码至少需要6位');
+        if (!captchaId || !captchaCode) throw new Error('请输入验证码');
 
         if (supabase) {
-            // 先注册 Auth（默认需要邮箱验证）
-            localStorage.setItem(PENDING_USERNAME_KEY, username);
-            const { data, error } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    emailRedirectTo: window.location.origin,
-                    data: { username },
-                },
+            const { data, error } = await supabase.rpc('auth_register', {
+                p_username: username,
+                p_password: password,
+                p_captcha_id: captchaId,
+                p_captcha_code: captchaCode,
+                p_device_id: getDeviceId(),
             });
-            if (error) throw new Error(error.message);
-            // 如果未验证，通常不会有 session；提示用户去邮箱点链接
-            const pendingEmailVerification = !data?.session;
-            return { user: null, pendingEmailVerification };
+            if (error) mapRpcAuthError(error);
+            if (!data?.id) throw new Error('注册失败');
+            return finishLoginWithProfile(data);
         }
 
         if (getLocalUserByName(username)) throw new Error('用户名已存在');
@@ -416,28 +275,25 @@
         return result;
     }
 
-    async function signIn(usernameOrEmail, password) {
-        usernameOrEmail = (usernameOrEmail || '').trim();
-        if (supabase) {
-            if (usernameOrEmail.includes('@')) {
-                const { data: authData, error } = await supabase.auth.signInWithPassword({
-                    email: usernameOrEmail,
-                    password,
-                });
-                if (error) throw new Error(error.message);
-                if (!authData?.session) {
-                    throw new Error('登录失败：未获取到会话，请确认邮箱已完成验证');
-                }
-                await ensureProfileForAuthSession();
-                if (!local.currentUser) {
-                    throw new Error('邮箱登录成功，但创建游戏档案失败，请稍后重试');
-                }
-                return finishLoginWithProfile(local.currentUser);
-            }
+    async function signIn(username, password, options = {}) {
+        username = (username || '').trim();
+        const captchaId = options.captchaId;
+        const captchaCode = (options.captchaCode || '').trim();
+        if (username.length < 2) throw new Error('请输入用户名');
+        if (password.length < 6) throw new Error('请输入密码');
+        if (!captchaId || !captchaCode) throw new Error('请输入验证码');
 
-            const user = await legacyLogin(usernameOrEmail, password);
-            if (!user?.id) throw new Error('用户名或密码错误');
-            return finishLoginWithProfile(user);
+        if (supabase) {
+            const { data, error } = await supabase.rpc('auth_login', {
+                p_username: username,
+                p_password: password,
+                p_captcha_id: captchaId,
+                p_captcha_code: captchaCode,
+                p_device_id: getDeviceId(),
+            });
+            if (error) mapRpcAuthError(error);
+            if (!data?.id) throw new Error('用户名或密码错误');
+            return finishLoginWithProfile(data);
         }
 
         const user = getLocalUserByName(username);
@@ -453,9 +309,6 @@
     }
 
     async function signOut() {
-        if (supabase) {
-            await supabase.auth.signOut();
-        }
         local.db.currentUserId = null;
         local.currentUser = null;
         saveLocalDb();
@@ -469,8 +322,6 @@
         }
 
         if (supabase) {
-            // 静默恢复邮箱 session（不弹窗）
-            await ensureProfileForAuthSession({ silent: true }).catch(() => null);
             if (local.db.currentUserId) {
                 const { data, error } = await supabase
                     .from('users')
