@@ -125,14 +125,54 @@
 
     async function finishLoginWithProfile(user) {
         if (!user?.id) throw new Error('登录失败：档案无效');
-        await ensureStarterInventory(user.id);
+        await ensureStarterInventory(user.id).catch(() => null);
         local.db.currentUserId = user.id;
         saveLocalDb();
         local.currentUser = sanitizeUser(user);
-        await ensureNicknameField();
-        await markDailyTask('login');
-        await recordLoginAchievement();
+        await ensureNicknameField().catch(() => null);
+        // 老账号无 Auth session 时，前端 update users 会被 RLS 拒绝，不能因此判定登录失败
+        try {
+            await markDailyTask('login');
+        } catch (e) {
+            console.warn('[login] markDailyTask skipped:', e?.message || e);
+        }
+        try {
+            await recordLoginAchievement();
+        } catch (e) {
+            console.warn('[login] recordLoginAchievement skipped:', e?.message || e);
+        }
         return { user: local.currentUser };
+    }
+
+    async function legacyLogin(username, password) {
+        const { data, error } = await supabase.rpc('legacy_login', {
+            p_username: username,
+            p_password: password,
+        });
+        if (!error && data) return data;
+        try {
+            const legacy = await fetchFunction('legacy-login', { username, password });
+            return legacy?.user || null;
+        } catch (fnErr) {
+            const rpcMsg = error?.message || '';
+            if (rpcMsg.includes('legacy_login') || rpcMsg.includes('does not exist')) {
+                throw new Error('数据库未安装 legacy_login，请在 Supabase SQL Editor 执行 supabase-auth-rpc.sql');
+            }
+            throw fnErr;
+        }
+    }
+
+    async function ensureGameProfile(username) {
+        const { data, error } = await supabase.rpc('ensure_game_profile', {
+            p_username: username || null,
+        });
+        if (!error && data) return data;
+        const created = await fetchFunction(
+            'create-profile',
+            { username },
+            { accessToken: (await getAccessToken()) || undefined },
+        );
+        return created?.user || null;
     }
 
     async function getSupabaseUserByAuthId(authUserId) {
@@ -168,13 +208,8 @@
             (authUser.email ? usernameFromEmail(authUser.email) : '');
 
         if (username.length >= 2) {
-            const created = await fetchFunction(
-                'create-profile',
-                { username },
-                { accessToken: session.access_token },
-            );
+            const user = await ensureGameProfile(username);
             localStorage.removeItem(PENDING_USERNAME_KEY);
-            const user = created?.user;
             if (user?.id) {
                 local.db.currentUserId = user.id;
                 saveLocalDb();
@@ -386,11 +421,9 @@
                 return finishLoginWithProfile(local.currentUser);
             }
 
-            const legacy = await fetchFunction('legacy-login', {
-                username: usernameOrEmail,
-                password,
-            });
-            return finishLoginWithProfile(legacy?.user);
+            const user = await legacyLogin(usernameOrEmail, password);
+            if (!user?.id) throw new Error('用户名或密码错误');
+            return finishLoginWithProfile(user);
         }
 
         const user = getLocalUserByName(username);
@@ -555,7 +588,11 @@
                 .eq('id', local.currentUser.id)
                 .select(USER_SELECT_COLUMNS)
                 .single();
-            if (error) throw new Error(error.message);
+            if (error) {
+                local.currentUser = { ...local.currentUser, dailyTasks: nextState };
+                console.warn('[dailyTasks] save skipped:', error.message);
+                return nextState;
+            }
             local.currentUser = sanitizeUser(data);
             return nextState;
         }
@@ -649,7 +686,15 @@
                 .eq('id', local.currentUser.id)
                 .select(USER_SELECT_COLUMNS)
                 .single();
-            if (error) throw new Error(error.message);
+            if (error) {
+                local.currentUser = {
+                    ...local.currentUser,
+                    achievements,
+                    achievementStats: stats,
+                };
+                console.warn('[achievements] save skipped:', error.message);
+                return;
+            }
             local.currentUser = sanitizeUser(data);
             return;
         }
