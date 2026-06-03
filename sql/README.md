@@ -8,13 +8,13 @@
 | 2 | [01-items-seed.sql](./01-items-seed.sql) | 物品目录（宝石/武器/皮肤等，背包写入校验用） |
 | 3 | [02-rls.sql](./02-rls.sql) | 行级安全策略（RLS）与基础读取权限 |
 | 4 | [03-auth.sql](./03-auth.sql) | 注册/登录：数字验证码 + 限流（RPC） |
-| 5 | [04-game-rpc.sql](./04-game-rpc.sql) | 每日任务、金币、背包容量、换肤（RPC） |
+| 5 | [04-game-rpc.sql](./04-game-rpc.sql) | 每日任务、金币、背包容量、换肤、简介（RPC） |
 | 6 | [05-user-guard-fix.sql](./05-user-guard-fix.sql) | 修复 RPC 改币被触发器误拦（报 ncut_coins cannot be updated 时必跑） |
 
 ## 前端对应关系
 
 - 注册/登录：`issue_captcha` → `auth_register` / `auth_login`
-- 每日任务 / 金币 / 背包 / 皮肤：`game_save_daily_tasks`、`game_claim_daily_task`、`game_set_coins`、`game_set_backpack_capacity`、`game_set_current_skin`
+- 每日任务 / 金币 / 背包 / 皮肤 / 简介：`game_save_daily_tasks`、`game_claim_daily_task`、`game_set_coins`、`game_set_backpack_capacity`、`game_set_current_skin`、`game_set_bio`
 - 代码：`js/captcha.js`、`js/store.js`
 - **不要**在前端直接 `insert` 到 `users` 表（由 RPC 在服务端创建）
 

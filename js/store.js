@@ -102,6 +102,7 @@
             msg.includes('game_claim_daily_task') ||
             msg.includes('game_set_backpack_capacity') ||
             msg.includes('game_set_current_skin') ||
+            msg.includes('game_set_bio') ||
             msg.includes('Could not find')
         ) {
             throw new Error('请先在 Supabase 按 sql/README.md 执行脚本（含 04、05）');
@@ -779,15 +780,12 @@
     async function setBio(bio) {
         bio = validateBio(bio);
         if (supabase && local.currentUser) {
-            const { data, error } = await supabase
-                .from('users')
-                .update({ bio, updated_at: new Date().toISOString() })
-                .eq('id', local.currentUser.id)
-                .select(USER_SELECT_COLUMNS)
-                .single();
-            if (error) throw new Error(error.message);
-            local.currentUser = sanitizeUser(data);
-            return local.currentUser;
+            const { data, error } = await supabase.rpc('game_set_bio', {
+                p_user_id: local.currentUser.id,
+                p_bio: bio,
+            });
+            if (error) mapRpcAuthError(error);
+            return applyRpcUser(data);
         }
         const user = requireLocalUser();
         user.bio = bio;

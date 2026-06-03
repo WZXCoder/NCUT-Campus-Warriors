@@ -177,15 +177,39 @@ begin
   return public._game_user_json(v_user);
 end; $$;
 
+-- 修改个人简介
+create or replace function public.game_set_bio(p_user_id uuid, p_bio text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_user public.users%rowtype;
+  v_bio text;
+begin
+  perform public._game_rpc_begin();
+  if p_user_id is null then raise exception 'invalid user_id'; end if;
+  v_bio := trim(coalesce(p_bio, ''));
+  if char_length(v_bio) > 100 then
+    raise exception 'bio too long';
+  end if;
+  select * into v_user from public.users where id = p_user_id for update;
+  if not found then raise exception 'user not found'; end if;
+  update public.users
+  set bio = v_bio, updated_at = now()
+  where id = p_user_id
+  returning * into v_user;
+  return public._game_user_json(v_user);
+end; $$;
+
 revoke all on function public.game_save_daily_tasks(uuid, jsonb) from public;
 revoke all on function public.game_set_coins(uuid, integer) from public;
 revoke all on function public.game_claim_daily_task(uuid, text) from public;
 revoke all on function public.game_set_backpack_capacity(uuid, integer) from public;
 revoke all on function public.game_set_current_skin(uuid, text) from public;
+revoke all on function public.game_set_bio(uuid, text) from public;
 grant execute on function public.game_save_daily_tasks(uuid, jsonb) to anon, authenticated;
 grant execute on function public.game_set_coins(uuid, integer) to anon, authenticated;
 grant execute on function public.game_claim_daily_task(uuid, text) to anon, authenticated;
 grant execute on function public.game_set_backpack_capacity(uuid, integer) to anon, authenticated;
 grant execute on function public.game_set_current_skin(uuid, text) to anon, authenticated;
+grant execute on function public.game_set_bio(uuid, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';

@@ -54,6 +54,8 @@
         const CLICK_TOLERANCE = 16;
         const BASE_ATTACK = 10;
         const BASE_RANGE = 40;
+        const REMOTE_PEER_STALE_MS = 8000;
+        const MONSTER_BROADCAST_STALE_MS = 1200;
         const imageCache = {};
 
         const state = {
@@ -81,6 +83,7 @@
             lastFrameAt: 0,
             lastHudPush: 0,
             lastMonsterBroadcast: 0,
+            lastRemoteMonsterBroadcastAt: 0,
             lastHostCheck: 0,
             lastMonsterMaintain: 0,
             lastSyncedMonsters: new Map(),
@@ -386,9 +389,35 @@
             ].join(':');
         }
 
+        function getRemotePeerCount() {
+            const cutoff = performance.now() - REMOTE_PEER_STALE_MS;
+            return state.remotePlayers.filter(remote => {
+                if (remote.isDead || (remote.hp ?? 100) <= 0) return false;
+                if (remote.updatedAt && remote.updatedAt < cutoff) return false;
+                return true;
+            }).length;
+        }
+
+        /** 房主或房间内暂无其他在线队友时本机负责怪物模拟 */
+        function isMonsterHostSimulator() {
+            if (!state.useSharedMonsters) return true;
+            if (getRemotePeerCount() === 0) return true;
+            return state.isRoomHost;
+        }
+
+        /** 本机负责怪物 AI：房主/单人，或非房主长时间未收到同步时接管 */
+        function shouldSimulateMonsterLocally() {
+            if (!state.useSharedMonsters) return true;
+            if (isMonsterHostSimulator()) return true;
+            if (!state.lastRemoteMonsterBroadcastAt) {
+                return performance.now() - state.startedAt > MONSTER_BROADCAST_STALE_MS;
+            }
+            return performance.now() - state.lastRemoteMonsterBroadcastAt > MONSTER_BROADCAST_STALE_MS;
+        }
+
         function syncMonstersFromSharedRows(rows) {
             const alive = (rows || []).filter(row => row.hp > 0);
-            if (state.isRoomHost) {
+            if (shouldSimulateMonsterLocally()) {
                 const rowById = new Map(alive.map(row => [row.id, row]));
                 const aliveIds = new Set(alive.map(row => row.id));
                 state.monsters.forEach(monster => {
@@ -400,7 +429,10 @@
                         state.monsters.push(mapSharedRowToMonster(row));
                     }
                 });
-                state.monsters = state.monsters.filter(monster => aliveIds.has(monster.sharedId));
+                state.monsters = state.monsters.filter(monster => {
+                    if (!monster.sharedId) return true;
+                    return aliveIds.has(monster.sharedId);
+                });
                 return;
             }
             const existingById = new Map(state.monsters.map(monster => [monster.sharedId || monster.id, monster]));
@@ -416,7 +448,8 @@
         }
 
         function handleSharedMonsterBroadcast(payload) {
-            if (!state.useSharedMonsters || state.isRoomHost || !payload?.npcs?.length) return;
+            if (!state.useSharedMonsters || isMonsterHostSimulator() || !payload?.npcs?.length) return;
+            state.lastRemoteMonsterBroadcastAt = performance.now();
             const byId = new Map(payload.npcs.map(item => [item.id, item]));
             state.monsters.forEach(monster => {
                 const data = byId.get(monster.sharedId || monster.id);
@@ -425,7 +458,7 @@
         }
 
         function interpolateSharedMonsters(now) {
-            if (!state.useSharedMonsters || state.isRoomHost) return;
+            if (!state.useSharedMonsters || shouldSimulateMonsterLocally()) return;
             const frameDt = Math.min(50, now - (state.lastFrameAt || now));
             const lerp = Math.min(1, frameDt * 0.018);
             state.monsters.forEach(monster => {
@@ -452,6 +485,7 @@
                     color: isDead ? '#64748b' : '#38bdf8',
                     skinItemId: remote.skinItemId || null,
                     image: assets.getSkinImageForItemId?.(remote.skinItemId),
+                    updatedAt: remote.updatedAt || 0,
                 };
             });
             if (state.spectating) updateSpectateCamera();
@@ -509,19 +543,25 @@
                 const alive = state.monsters.filter(item => item.hp > 0).length;
                 if (multiplayer?.ensureSharedNpcs && alive < target) {
                     await multiplayer.ensureSharedNpcs(roomId, buildSharedMonsterRow, target, {
-                        isHost: state.isRoomHost,
+                        isHost: isMonsterHostSimulator(),
                         allowSeedWhenEmpty: true,
                     });
                 }
-                if (multiplayer?.refreshSharedNpcs) {
-                    await multiplayer.refreshSharedNpcs(roomId);
-                }
                 if (state.monsters.filter(item => item.hp > 0).length === 0) {
-                    console.warn('[survival] shared monsters empty after ensure');
-                    state.useSharedMonsters = false;
-                    state.monsterBroadcastMode = false;
-                    multiplayer?.stopSharedNpcs?.();
-                    while (state.monsters.length < target) spawnMonster();
+                    if (shouldSimulateMonsterLocally()) {
+                        while (state.monsters.filter(item => item.hp > 0).length < target) spawnMonster();
+                    } else if (multiplayer?.refreshSharedNpcs) {
+                        await multiplayer.refreshSharedNpcs(roomId);
+                    }
+                    if (state.monsters.filter(item => item.hp > 0).length === 0) {
+                        console.warn('[survival] shared monsters empty after ensure');
+                        state.useSharedMonsters = false;
+                        state.monsterBroadcastMode = false;
+                        multiplayer?.stopSharedNpcs?.();
+                        while (state.monsters.filter(item => item.hp > 0).length < target) spawnMonster();
+                    }
+                } else if (multiplayer?.refreshSharedNpcs) {
+                    await multiplayer.refreshSharedNpcs(roomId);
                 }
                 return;
             }
@@ -533,7 +573,7 @@
                 const sharedId = monster.sharedId || monster.id;
                 state.lastSyncedMonsters.delete(sharedId);
                 multiplayer.deleteSharedNpc(sharedId);
-                if (state.isRoomHost && multiplayer?.ensureSharedNpcs) {
+                if (isMonsterHostSimulator() && multiplayer?.ensureSharedNpcs) {
                     multiplayer.ensureSharedNpcs(roomId, buildSharedMonsterRow, targetMonsterCount());
                 }
             }
@@ -599,6 +639,7 @@
             state.medkitsUsed = 0;
             state.skillSpeedBonus = 0;
             state.lastSyncedMonsters.clear();
+            state.lastRemoteMonsterBroadcastAt = 0;
             state.lastFrameAt = 0;
             state.teamKills = 0;
             state.spectating = false;
@@ -999,13 +1040,13 @@
             maintainDrops();
             if (!state.useSharedMonsters) {
                 maintainMonsters();
-            } else if (state.isRoomHost && now - state.lastMonsterMaintain > 2000) {
+            } else if (shouldSimulateMonsterLocally() && now - state.lastMonsterMaintain > 2000) {
                 state.lastMonsterMaintain = now;
                 maintainMonsters();
             }
 
             state.monsters.forEach(monster => {
-                if (state.useSharedMonsters && state.isRoomHost) {
+                if (state.useSharedMonsters && shouldSimulateMonsterLocally()) {
                     updateSharedMonster(monster, playerPoint, now, deltaTime);
                 } else if (!state.useSharedMonsters) {
                     updateLocalMonster(monster, playerPoint, now, deltaTime);
@@ -1019,11 +1060,12 @@
                 multiplayer?.isRoomHost?.(roomId, userId).then(isHost => {
                     if (isHost === state.isRoomHost) return;
                     state.isRoomHost = isHost;
-                    if (isHost) maintainMonsters();
+                    void maintainMonsters();
                 });
             }
 
-            if (state.useSharedMonsters && state.isRoomHost && state.monsterBroadcastMode && now - state.lastMonsterBroadcast > 120) {
+            if (state.useSharedMonsters && isMonsterHostSimulator()
+                && state.monsterBroadcastMode && now - state.lastMonsterBroadcast > 120) {
                 let moved = false;
                 state.monsters.forEach(monster => {
                     const id = monster.sharedId || monster.id;
