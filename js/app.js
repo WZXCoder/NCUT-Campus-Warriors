@@ -151,7 +151,8 @@
             tooltip,
             interactionState,
             config: CONFIG,
-            allowSingleFingerMapDrag: () => !mobileControls.isActive(),
+            // 摸金/生存禁止拖地图，避免相机被拖走后误以为 WASD 失效
+            allowSingleFingerMapDrag: () => !mobileControls.isActive() && appState.mode === 'visit',
         });
 
         function setView(viewName) {
@@ -171,6 +172,8 @@
                 appState.mode = 'lobby';
                 mobileControls.setGameMode(null);
             } else if (viewName === 'visit' || viewName === 'goldrush' || viewName === 'survival') {
+                interactionState.isDragging = false;
+                document.body.classList.remove('grabbing');
                 player.enable();
                 minimap.show();
                 mapRenderer.resizeCanvas();
@@ -495,6 +498,7 @@
 
             let roomId = null;
             let goldRushPlayerCount = 1;
+            let goldRushPeerPresence = 0;
             if (realtime?.isEnabled?.()) {
                 try {
                     const joinResult = await realtime.findOrJoinGoldRushRoom(user, displayName);
@@ -512,8 +516,14 @@
                 }
             }
 
+            if (roomId && realtime.countActivePresence) {
+                goldRushPeerPresence = await realtime.countActivePresence(roomId, 'goldrush', user?.id);
+            }
+
+            // 房内≥2 人或已有其他玩家在线 → 共享 NPC；仅自己一人时用本地 AI（isNpcAuthorityClient）
             const useSharedGoldRushNpcs = Boolean(
-                roomId && realtime?.isEnabled?.() && goldRushPlayerCount >= 2,
+                roomId && realtime?.isEnabled?.()
+                && (goldRushPlayerCount >= 2 || goldRushPeerPresence >= 1),
             );
             const goldRushMultiplayer = roomId && realtime?.isEnabled?.()
                 ? {

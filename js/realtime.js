@@ -455,6 +455,29 @@
         return count || 0;
     }
 
+    /** 房间内其他在线玩家数（presence 心跳，不含自己） */
+    async function countActivePresence(roomId, mode = 'goldrush', excludeUserId = null) {
+        if (!supabase || !roomId) return 0;
+        const cutoff = new Date(Date.now() - PRESENCE_STALE_MS).toISOString();
+        const selfId = excludeUserId || localUserId;
+        let query = supabase
+            .from('player_presence')
+            .select('*', { count: 'exact', head: true })
+            .eq('mode', mode)
+            .eq('room_id', roomId)
+            .eq('status', 'active')
+            .gte('updated_at', cutoff);
+        if (selfId) {
+            query = query.neq('user_id', selfId);
+        }
+        const { count, error } = await query;
+        if (error) {
+            console.warn('[realtime] countActivePresence failed:', error);
+            return 0;
+        }
+        return count || 0;
+    }
+
     async function refreshRoomCount(roomId) {
         const activeCount = await countActiveMembers(roomId);
         await supabase
@@ -1062,6 +1085,6 @@
             broadcastSharedNpcState,
             stopSharedNpcs,
             countActiveMembers,
+            countActivePresence,
         },
     };
-})(window);
