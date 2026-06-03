@@ -96,6 +96,7 @@
             lastMaintainCheck: 0,
             lastHostileSeedAt: 0,
             lastNpcBroadcast: 0,
+            lastRemoteNpcBroadcastAt: 0,
             lastSyncedNpcs: new Map(),
             npcBroadcastMode: false,
             isRoomHost: false,
@@ -191,8 +192,10 @@
             ];
         }
 
+        const REMOTE_PEER_STALE_MS = 8000;
+        const NPC_BROADCAST_STALE_MS = 1200;
+
         function syncRemotePlayers(remotes = []) {
-            const prevPeerCount = getRemotePeerCount();
             state.remotePlayers = remotes
                 .filter(remote => remote.status !== 'dead' && remote.status !== 'extracted')
                 .map(remote => ({
@@ -210,6 +213,7 @@
                     color: '#ef4444',
                     skinItemId: remote.skinItemId || null,
                     image: assets.getSkinImageForItemId?.(remote.skinItemId),
+                    updatedAt: remote.updatedAt || 0,
                 }));
         }
 
@@ -328,7 +332,7 @@
                 maxHp: row.max_hp,
                 attack: row.attack ?? randomInt(3, 10),
                 attackRange: row.attack_range,
-                speed: row.speed,
+                speed: Number(row.speed) > 0 ? Number(row.speed) : randomEntityMoveStep(),
                 attackInterval: row.attack_interval,
                 image: getSharedNpcImage(row.image_index || 0),
                 lastAttackAt: Number(row.last_attack_at) || 0,
@@ -378,20 +382,35 @@
         }
 
         function getRemotePeerCount() {
-            return state.remotePlayers.filter(remote => (remote.hp ?? 100) > 0).length;
+            const cutoff = performance.now() - REMOTE_PEER_STALE_MS;
+            return state.remotePlayers.filter(remote => {
+                if ((remote.hp ?? 100) <= 0) return false;
+                if (remote.updatedAt && remote.updatedAt < cutoff) return false;
+                return true;
+            }).length;
         }
 
-        /** 本机负责 NPC 移动模拟：单人本地 / 共享模式房主 / 房间内暂无其他在线玩家 */
-        function isNpcAuthorityClient() {
+        /** 房主或单人时本机负责 NPC 模拟 */
+        function isNpcHostSimulator() {
             if (!state.useSharedNpcs) return true;
-            if (getRemotePeerCount() > 0) return state.isRoomHost;
-            return true;
+            if (getRemotePeerCount() === 0) return true;
+            return state.isRoomHost;
+        }
+
+        /** 本机负责 NPC 移动模拟：房主/单人，或非房主长时间未收到房主 NPC 同步时接管 */
+        function shouldSimulateNpcLocally() {
+            if (!state.useSharedNpcs) return true;
+            if (isNpcHostSimulator()) return true;
+            if (!state.lastRemoteNpcBroadcastAt) {
+                return performance.now() - state.startedAt > NPC_BROADCAST_STALE_MS;
+            }
+            return performance.now() - state.lastRemoteNpcBroadcastAt > NPC_BROADCAST_STALE_MS;
         }
 
         function syncNpcsFromSharedRows(rows) {
             if (!state.useSharedNpcs) return;
             const alive = (rows || []).filter(row => row.hp > 0);
-            if (isNpcAuthorityClient()) {
+            if (shouldSimulateNpcLocally()) {
                 const rowById = new Map(alive.map(row => [row.id, row]));
                 const aliveIds = new Set(alive.map(row => row.id));
                 state.npcs.forEach(npc => {
@@ -422,7 +441,8 @@
         }
 
         function handleSharedNpcBroadcast(payload) {
-            if (!state.useSharedNpcs || isNpcAuthorityClient() || !payload?.npcs?.length) return;
+            if (!state.useSharedNpcs || isNpcHostSimulator() || !payload?.npcs?.length) return;
+            state.lastRemoteNpcBroadcastAt = performance.now();
             const byId = new Map(payload.npcs.map(item => [item.id, item]));
             state.npcs.forEach(npc => {
                 const data = byId.get(npc.sharedId || npc.id);
@@ -431,7 +451,7 @@
         }
 
         function interpolateSharedNpcs(now) {
-            if (!state.useSharedNpcs || isNpcAuthorityClient()) return;
+            if (!state.useSharedNpcs || shouldSimulateNpcLocally()) return;
             const frameDt = Math.min(50, now - (state.lastFrameAt || now));
             const lerp = Math.min(1, frameDt * 0.018);
             state.npcs.forEach(npc => {
@@ -657,12 +677,12 @@
             if (state.useSharedNpcs) {
                 if (multiplayer?.ensureSharedNpcs) {
                     await multiplayer.ensureSharedNpcs(roomId, buildSharedNpcRow, MAX_HOSTILES, {
-                        isHost: isNpcAuthorityClient(),
+                        isHost: isNpcHostSimulator(),
                         allowSeedWhenEmpty: true,
                     });
                 }
                 if (getAliveHostileCount() === 0) {
-                    if (isNpcAuthorityClient()) {
+                    if (shouldSimulateNpcLocally()) {
                         while (getAliveHostileCount() < MAX_HOSTILES) spawnNpc();
                     } else if (multiplayer?.refreshSharedNpcs) {
                         await multiplayer.refreshSharedNpcs(roomId);
@@ -691,6 +711,7 @@
             state.treasures = [];
             state.npcs = [];
             state.lastSyncedNpcs.clear();
+            state.lastRemoteNpcBroadcastAt = 0;
             state.lastFrameAt = 0;
             state.droppedItems = [];
             state.collectible = null;
@@ -939,7 +960,7 @@
         }
 
         function updateCombatEntity(entity, playerPoint, now, deltaTime = 1 / 60) {
-            if (state.useSharedNpcs && isNpcAuthorityClient()) {
+            if (state.useSharedNpcs && shouldSimulateNpcLocally()) {
                 updateSharedCombatEntity(entity, playerPoint, now, deltaTime);
                 return;
             }
@@ -1051,7 +1072,7 @@
                 });
             }
 
-            if (state.useSharedNpcs && isNpcAuthorityClient() && getRemotePeerCount() > 0
+            if (state.useSharedNpcs && isNpcHostSimulator()
                 && state.npcBroadcastMode && now - state.lastNpcBroadcast > 120) {
                 let moved = false;
                 state.npcs.forEach(npc => {
@@ -1073,7 +1094,7 @@
                         rootedUntil: npc.rootedUntil || 0,
                     })));
                 }
-            } else if (state.useSharedNpcs && isNpcAuthorityClient() && getRemotePeerCount() > 0
+            } else if (state.useSharedNpcs && isNpcHostSimulator()
                 && !state.npcBroadcastMode && now - state.lastNpcDbSync > 750) {
                 state.lastNpcDbSync = now;
                 const dirtyNpcs = state.npcs.reduce((list, npc) => {

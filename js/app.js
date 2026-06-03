@@ -520,10 +520,10 @@
                 goldRushPeerPresence = await realtime.countActivePresence(roomId, 'goldrush', user?.id);
             }
 
-            // 房内≥2 人或已有其他玩家在线 → 共享 NPC；仅自己一人时用本地 AI（isNpcAuthorityClient）
+            // 仅当检测到其他玩家在线时使用共享 NPC；单人始终走本地 AI，避免非房主收不到同步后 NPC 静止
             const useSharedGoldRushNpcs = Boolean(
                 roomId && realtime?.isEnabled?.()
-                && (goldRushPlayerCount >= 2 || goldRushPeerPresence >= 1),
+                && goldRushPeerPresence >= 1,
             );
             const goldRushMultiplayer = roomId && realtime?.isEnabled?.()
                 ? {
