@@ -204,7 +204,7 @@
         }, { onConflict: 'user_id' });
         if (error) {
             if (error.code === 'PGRST205' || /player_presence/i.test(error.message || '')) {
-                lastError = '数据库缺少 player_presence 表，请在 Supabase SQL Editor 执行 supabase-schema.sql 末尾的多人同步 SQL';
+                lastError = '数据库缺少 player_presence 表，请在 Supabase SQL Editor 按 sql/README.md 执行 01-tables.sql';
             } else {
                 lastError = error.message;
             }
@@ -1061,6 +1061,7 @@
             syncSharedNpcBatch,
             broadcastSharedNpcState,
             stopSharedNpcs,
+            countActiveMembers,
         },
     };
 })(window);

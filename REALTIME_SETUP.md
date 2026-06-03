@@ -28,7 +28,7 @@
 ### 2. 执行数据库 Schema（**必做，否则多人无效**）
 
 1. 左侧 **SQL Editor** → **New query**  
-2. 打开 `supabase-schema.sql`，执行**从 `game_rooms` 到文件末尾**的全部新增语句，至少包含：
+2. 按 [sql/README.md](./sql/README.md) 顺序执行 `sql/01-tables.sql` ～ `sql/05-user-guard-fix.sql`（至少包含表结构、RLS、认证 RPC），其中 `01-tables.sql` 已包含：
    - `game_rooms` / `game_room_members`
    - **`player_presence`**（位置同步核心）
    - `supabase_realtime` publication 添加 `player_presence`
@@ -59,7 +59,7 @@ select * from public.player_presence limit 5;
 ### 5. Row Level Security
 
 schema 中已为 `game_rooms` / `game_room_members` 设置 `using (true)` 开放策略（与现有原型一致）。  
-**正式环境**建议改为 Edge Functions 校验后再写入。
+**正式环境**建议收紧 RLS，并将敏感写操作收口到 RPC（见 `sql/04-game-rpc.sql` 等）。
 
 ---
 
@@ -116,7 +116,7 @@ schema 中已为 `game_rooms` / `game_room_members` 设置 `using (true)` 开放
 | `js/app.js` | 参观/摸金接入、HUD 在线列表 |
 | `js/goldrush.js` | 真人 PVP、移除 AI 摸金客 |
 | `js/renderer.js` | 参观模式绘制其他玩家 |
-| `supabase-schema.sql` | 房间表 DDL |
+| `sql/01-tables.sql` | 房间表、presence、触发器等 DDL |
 
 主要 API：
 
@@ -159,7 +159,7 @@ Supabase 免费档有并发连接限制；参观全服单频道、摸金按房�
 
 ## 七、后续可增强项（未实现）
 
-- 服务端权威世界状态（NPC/宝物同步）  
-- Edge Function 防作弊校验 PVP 伤害  
+- 服务端权威世界状态（摸金 NPC 当前为客户端本地刷怪）  
+- RPC / 服务端校验 PVP 伤害与经济变动  
 - 断线重连自动 re-join 同一 room  
 - 参观模式按校区/实例分频道  

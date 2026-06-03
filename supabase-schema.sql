@@ -1,5 +1,0 @@
--- 本文件已迁移到 sql/ 目录，请按顺序执行：
---   sql/01-tables.sql
---   sql/02-rls.sql
---   sql/03-auth.sql
--- 说明见 sql/README.md

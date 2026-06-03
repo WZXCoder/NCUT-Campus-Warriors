@@ -23,6 +23,8 @@
 - 清理恶意 `test*` 用户：在 SQL Editor 自行 `delete from public.users where username ilike 'test%';`（会级联删关联数据）
 - 清空生存排行榜（仅必要时）：`delete from public.game_runs where mode = 'survival';`
 
-## 旧文件说明
+## 架构说明
 
-根目录下的 `supabase-schema.sql` 等已合并进本目录，新环境请只执行 `sql/` 内脚本。
+- **不使用** Supabase Edge Functions；注册/登录/验证码/金币与每日任务均通过 **PostgreSQL RPC**（`03-auth.sql`、`04-game-rpc.sql`）完成。
+- 多人同步见项目根目录 [REALTIME_SETUP.md](../REALTIME_SETUP.md)，由前端 `js/realtime.js` + Realtime/Broadcast 实现。
+- **共享 NPC**：摸金房间 ≥2 人、生存双人/四人时，怪物/NPC 写入 `game_room_npcs`，房主补怪，全员同步位置与血量。

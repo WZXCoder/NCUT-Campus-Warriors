@@ -505,12 +505,23 @@
 
         async function maintainMonsters() {
             if (state.useSharedMonsters) {
-                if (state.isRoomHost && multiplayer?.ensureSharedNpcs) {
-                    const target = targetMonsterCount();
-                    const alive = state.monsters.filter(item => item.hp > 0).length;
-                    if (alive < target) {
-                        await multiplayer.ensureSharedNpcs(roomId, buildSharedMonsterRow, target);
-                    }
+                const target = targetMonsterCount();
+                const alive = state.monsters.filter(item => item.hp > 0).length;
+                if (multiplayer?.ensureSharedNpcs && alive < target) {
+                    await multiplayer.ensureSharedNpcs(roomId, buildSharedMonsterRow, target, {
+                        isHost: state.isRoomHost,
+                        allowSeedWhenEmpty: true,
+                    });
+                }
+                if (multiplayer?.refreshSharedNpcs) {
+                    await multiplayer.refreshSharedNpcs(roomId);
+                }
+                if (state.monsters.filter(item => item.hp > 0).length === 0) {
+                    console.warn('[survival] shared monsters empty after ensure');
+                    state.useSharedMonsters = false;
+                    state.monsterBroadcastMode = false;
+                    multiplayer?.stopSharedNpcs?.();
+                    while (state.monsters.length < target) spawnMonster();
                 }
                 return;
             }
@@ -622,17 +633,18 @@
                     });
                     if (!initResult?.ok) {
                         state.useSharedMonsters = false;
-                        maintainMonsters();
+                        await maintainMonsters();
                     } else {
                         state.monsterBroadcastMode = initResult.broadcast !== false;
+                        await maintainMonsters();
                     }
                 } catch (error) {
                     console.error('[survival] shared monster init failed:', error);
                     state.useSharedMonsters = false;
-                    maintainMonsters();
+                    await maintainMonsters();
                 }
             } else {
-                maintainMonsters();
+                await maintainMonsters();
             }
 
             if (isTeamMode() && roomId && multiplayer?.isRoomHost) {

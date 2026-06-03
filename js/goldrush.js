@@ -276,7 +276,7 @@
                 state.droppedItems.push({ itemId: pickWeightedGem().id, x: target.x, y: target.y });
             }
             state.npcs = state.npcs.filter(npc => npc.id !== target.id);
-            maintainHostiles();
+            void maintainHostiles();
         }
 
         function buildSharedNpcRow() {
@@ -445,7 +445,7 @@
                     state.npcs = state.npcs.filter(npc => ids.has(npc.id));
                     state.remotePlayers = state.remotePlayers.filter(playerEntity => ids.has(playerEntity.id));
                 },
-                spawnMonster: () => maintainHostiles(),
+                spawnMonster: () => { void maintainHostiles(); },
                 getAttack: () => getStrikeDamage(),
                 getPlayerBaseMoveStep,
                 getPlayerAppearance: () => ({
@@ -638,8 +638,24 @@
             }
         }
 
-        function maintainHostiles() {
-            if (state.useSharedNpcs) return;
+        async function maintainHostiles() {
+            if (state.useSharedNpcs) {
+                if (multiplayer?.ensureSharedNpcs) {
+                    await multiplayer.ensureSharedNpcs(roomId, buildSharedNpcRow, MAX_HOSTILES, {
+                        isHost: state.isRoomHost,
+                        allowSeedWhenEmpty: true,
+                    });
+                }
+                if (multiplayer?.refreshSharedNpcs) {
+                    await multiplayer.refreshSharedNpcs(roomId);
+                }
+                if (getAliveHostileCount() === 0) {
+                    console.warn('[goldrush] shared npcs empty after ensure');
+                    toast?.('共享 NPC 同步异常，已改用本地 NPC');
+                    seedLocalHostiles();
+                }
+                return;
+            }
             while (getAliveHostileCount() < MAX_HOSTILES) {
                 spawnNpc();
             }
@@ -686,7 +702,8 @@
 
             state.useSharedNpcs = false;
             state.npcBroadcastMode = false;
-            if (useSharedNpcsOption === true && roomId && multiplayer?.initSharedNpcs) {
+            const wantSharedNpcs = Boolean(useSharedNpcsOption && roomId && multiplayer?.initSharedNpcs);
+            if (wantSharedNpcs) {
                 try {
                     state.isRoomHost = await multiplayer.isRoomHost(roomId, userId);
                     const npcResult = await multiplayer.initSharedNpcs({
@@ -695,24 +712,19 @@
                         buildNpcRow: buildSharedNpcRow,
                         onChange: rows => syncNpcsFromSharedRows(rows),
                         useBroadcast: true,
+                        maxCount: MAX_HOSTILES,
                     });
                     if (npcResult?.ok) {
                         state.useSharedNpcs = true;
                         state.npcBroadcastMode = npcResult.broadcast !== false;
-                        await multiplayer.ensureSharedNpcs?.(roomId, buildSharedNpcRow, MAX_HOSTILES, {
-                            isHost: state.isRoomHost,
-                            allowSeedWhenEmpty: true,
-                        });
-                        await multiplayer.refreshSharedNpcs?.(roomId);
-                        if (getAliveHostileCount() === 0) {
-                            console.warn('[goldrush] shared npcs empty, fallback to local npcs');
-                            seedLocalHostiles();
-                        }
+                        await maintainHostiles();
                     } else {
+                        toast?.('共享 NPC 初始化失败，已改用本地 NPC');
                         seedLocalHostiles();
                     }
                 } catch (error) {
                     console.error('[goldrush] shared npc init failed:', error);
+                    toast?.('共享 NPC 初始化失败，已改用本地 NPC');
                     seedLocalHostiles();
                 }
             } else {
@@ -723,6 +735,7 @@
 
         function stop() {
             state.active = false;
+            if (state.useSharedNpcs) disableSharedNpcs();
             if (state.weapon?.speed) player.state.speed -= state.weapon.speed;
             if (state.speedItem) player.state.speed -= state.speedItem.speed || 0;
             if (state.skillSpeedBonus) player.state.speed -= state.skillSpeedBonus;
@@ -998,9 +1011,9 @@
                 state.lastMaintainCheck = now;
                 maintainEquipmentDrops();
             }
-            if (!state.useSharedNpcs && now - (state.lastHostileSeedAt || 0) > 2500) {
+            if (now - (state.lastHostileSeedAt || 0) > 2500) {
                 state.lastHostileSeedAt = now;
-                maintainHostiles();
+                void maintainHostiles();
             }
             const playerPoint = { x: player.state.x, y: player.state.y };
             updateSpeedDurability();

@@ -89,7 +89,7 @@ https://ncutcampuswarriors-20uhm01cp.maozi.io
 |------|------|
 | 前端 | HTML5、CSS3、原生 JavaScript（无框架） |
 | 渲染 | Canvas 2D（地图、角色、特效、小地图） |
-| 后端 | [Supabase](https://supabase.com/)（PostgreSQL + REST + Realtime + Storage） |
+| 后端 | [Supabase](https://supabase.com/)（PostgreSQL + RPC + REST + Realtime + Storage） |
 | 资源 | Supabase Storage（`game-assets` 桶：皮肤、NPC、藏品等） |
 
 ---
@@ -189,11 +189,18 @@ ncut2/
 │   ├── minimap.js          # 小地图
 │   ├── weather.js          # 天气粒子效果
 │   └── ...
-├── supabase-schema.sql     # 完整数据库 Schema
-├── multiplayer-schema.sql  # 多人同步补充表
-├── REALTIME_SETUP.md       # Realtime 配置说明
+├── sql/                    # Supabase 数据库脚本（按 README 顺序执行）
+│   ├── 01-tables.sql       # 表结构、触发器、Realtime publication
+│   ├── 01-items-seed.sql   # 物品目录
+│   ├── 02-rls.sql          # 行级安全
+│   ├── 03-auth.sql         # 验证码 + 注册/登录 RPC
+│   ├── 04-game-rpc.sql     # 金币、每日任务 RPC
+│   └── 05-user-guard-fix.sql
+├── REALTIME_SETUP.md       # 多人 Realtime 配置说明
+├── .env.example            # 构建时注入 Supabase 环境变量示例
 └── scripts/
-    └── loadtest-supabase.mjs  # Supabase 压测脚本
+    ├── inject-env.mjs      # 构建：将环境变量写入 dist/index.html
+    └── loadtest-supabase.mjs  # （可选）Supabase 压测脚本
 ```
 
 ---
@@ -212,7 +219,7 @@ ncut2/
 - 地图随机刷新宝石、武器掉落、稀有收藏品与 NPC
 - 击败 NPC 或与其他玩家 PVP，搜刮物资后前往 **撤离点** 等待 20 秒成功撤离
 - 死亡或未撤离则本局背包物品丢失；成功撤离物品带回账户
-- 支持自动匹配房间（最多约 10 人），共享 NPC 由房主同步
+- 支持自动匹配房间（最多约 10 人）；**房间内 ≥2 人** 时 NPC 由 `game_room_npcs` 共享同步，**单人** 为本地 5 个 NPC（击杀后补足）
 
 ### 生存模式
 
@@ -245,40 +252,6 @@ ncut2/
 
 ---
 
-## 快速开始
-
-### 1. 克隆项目
-
-```bash
-git clone https://github.com/WZXCoder/NCUT-Campus-Warriors.git
-cd NCUT-Campus-Warriors
-```
-
-### 2. 本地运行
-
-任意静态 HTTP 服务即可，例如：
-
-```bash
-# Python 3
-python -m http.server 8080
-```
-
-浏览器访问 `http://localhost:8080/index.html`。
-
-> 直接双击打开 `index.html` 可能因 CORS 导致部分功能异常，建议使用本地服务器。
-
-### 3. 配置 Supabase（可选，启用云端存档与多人）
-
-1. 在 [Supabase](https://supabase.com/) 创建项目
-2. 在 SQL Editor 依次执行：
-   - `supabase-schema.sql`（完整 Schema）
-   - 若需多人，参考 `multiplayer-schema.sql` 与 `REALTIME_SETUP.md`
-3. 编辑 `js/supabase-client.js`，填入你的 **Project URL** 与 **anon public key**
-4. 在 Storage 创建 `game-assets` 公共桶并上传皮肤、NPC、藏品等资源（路径需与 `js/assets.js` 中 `ASSET_BASE_URL` 一致）
-
-未配置 Supabase 时，游戏会回退到 **localStorage 本地存档**，单人可玩，多人功能不可用。
-
-
 ## 调参（开发者）
 
 全局移速常量位于 `js/constants.js` 的 `MOVEMENT` 对象：
@@ -300,8 +273,6 @@ const MOVEMENT = {
 
 ## 相关文档
 
-- [REALTIME_SETUP.md](./REALTIME_SETUP.md) — 参观 / 摸金 / 生存多人模式 Supabase 配置指南
-- [supabase-schema.sql](./supabase-schema.sql) — 数据库表结构
-- [multiplayer-schema.sql](./multiplayer-schema.sql) — 多人 presence 与房间表
+- [sql/README.md](./sql/README.md) — 数据库脚本执行顺序与 RPC 说明
+- [REALTIME_SETUP.md](./REALTIME_SETUP.md) — 参观 / 摸金 / 生存多人 Realtime 配置
 
----

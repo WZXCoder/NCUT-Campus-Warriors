@@ -500,6 +500,9 @@
                     const joinResult = await realtime.findOrJoinGoldRushRoom(user, displayName);
                     roomId = joinResult.roomId;
                     goldRushPlayerCount = joinResult.playerCount || 1;
+                    if (roomId && realtime.countActiveMembers) {
+                        goldRushPlayerCount = await realtime.countActiveMembers(roomId) || goldRushPlayerCount;
+                    }
                     appState.goldRushRoomId = roomId;
                     if (joinResult.created) ui.toast('已创建新摸金房间');
                     else ui.toast(`加入摸金房间（当前约 ${goldRushPlayerCount} 人）`);
@@ -509,7 +512,26 @@
                 }
             }
 
-            // 摸金 NPC 固定本地刷 5 只（不依赖 game_room_npcs，避免单人进房无怪）
+            const useSharedGoldRushNpcs = Boolean(
+                roomId && realtime?.isEnabled?.() && goldRushPlayerCount >= 2,
+            );
+            const goldRushMultiplayer = roomId && realtime?.isEnabled?.()
+                ? {
+                    broadcast: (event, payload) => realtime.broadcast(event, payload),
+                    isRoomHost: (rid, uid) => realtime.isRoomHost(rid, uid),
+                    ...(useSharedGoldRushNpcs ? {
+                        initSharedNpcs: opts => realtime.initSharedNpcs(opts),
+                        ensureSharedNpcs: (rid, builder, max, opts) => realtime.ensureSharedNpcs(rid, builder, max, opts),
+                        refreshSharedNpcs: rid => realtime.refreshSharedNpcs(rid),
+                        stopSharedNpcs: () => realtime.stopSharedNpcs(),
+                        updateSharedNpcHp: (id, hp) => realtime.updateSharedNpcHp(id, hp),
+                        deleteSharedNpc: id => realtime.deleteSharedNpc(id),
+                        syncSharedNpcBatch: npcs => realtime.syncSharedNpcBatch(npcs),
+                        broadcastSharedNpcState: npcs => realtime.broadcastSharedNpcState(npcs),
+                    } : {}),
+                }
+                : null;
+
             appState.currentRun = goldrush.createGoldRush({
                 player,
                 camera,
@@ -522,11 +544,8 @@
                 baseBackpackUsage,
                 roomId,
                 userId: user?.id,
-                useSharedNpcs: false,
-                multiplayer: roomId && realtime?.isEnabled?.() ? {
-                    broadcast: (event, payload) => realtime.broadcast(event, payload),
-                    isRoomHost: (rid, uid) => realtime.isRoomHost(rid, uid),
-                } : null,
+                useSharedNpcs: useSharedGoldRushNpcs,
+                multiplayer: goldRushMultiplayer,
                 onLeaveRoom: status => {
                     const currentUser = store.getUser();
                     const room = appState.goldRushRoomId;

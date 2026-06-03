@@ -1,1 +1,0 @@
--- 已合并到 sql/01-tables.sql（多人房间、player_presence 等）

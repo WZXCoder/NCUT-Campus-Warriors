@@ -1,1 +1,0 @@
--- 已合并到 sql/03-auth.sql，请执行 sql/README.md 中的脚本。
