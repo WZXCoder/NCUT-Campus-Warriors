@@ -127,11 +127,65 @@ begin
   return public._game_user_json(v_user);
 end; $$;
 
+-- 设置背包容量（购买扩容卡；仅允许增加，上限 2000）
+create or replace function public.game_set_backpack_capacity(p_user_id uuid, p_capacity integer)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_user public.users%rowtype;
+begin
+  perform public._game_rpc_begin();
+  if p_user_id is null then raise exception 'invalid user_id'; end if;
+  if p_capacity is null or p_capacity < 50 or p_capacity > 2000 then
+    raise exception 'invalid backpack_capacity';
+  end if;
+  select * into v_user from public.users where id = p_user_id for update;
+  if not found then raise exception 'user not found'; end if;
+  if p_capacity < v_user.backpack_capacity then
+    raise exception 'backpack_capacity cannot decrease';
+  end if;
+  update public.users
+  set backpack_capacity = p_capacity, updated_at = now()
+  where id = p_user_id
+  returning * into v_user;
+  return public._game_user_json(v_user);
+end; $$;
+
+-- 更换当前皮肤（null 表示默认皮肤；须已解锁）
+create or replace function public.game_set_current_skin(p_user_id uuid, p_skin_item_id text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_user public.users%rowtype;
+  v_skin_id text;
+begin
+  perform public._game_rpc_begin();
+  if p_user_id is null then raise exception 'invalid user_id'; end if;
+  v_skin_id := nullif(trim(p_skin_item_id), '');
+  if v_skin_id is not null then
+    if not exists (
+      select 1 from public.inventories
+      where user_id = p_user_id and item_id = v_skin_id and quantity > 0
+    ) then
+      raise exception '皮肤未解锁';
+    end if;
+  end if;
+  select * into v_user from public.users where id = p_user_id for update;
+  if not found then raise exception 'user not found'; end if;
+  update public.users
+  set current_skin_item_id = v_skin_id, updated_at = now()
+  where id = p_user_id
+  returning * into v_user;
+  return public._game_user_json(v_user);
+end; $$;
+
 revoke all on function public.game_save_daily_tasks(uuid, jsonb) from public;
 revoke all on function public.game_set_coins(uuid, integer) from public;
 revoke all on function public.game_claim_daily_task(uuid, text) from public;
+revoke all on function public.game_set_backpack_capacity(uuid, integer) from public;
+revoke all on function public.game_set_current_skin(uuid, text) from public;
 grant execute on function public.game_save_daily_tasks(uuid, jsonb) to anon, authenticated;
 grant execute on function public.game_set_coins(uuid, integer) to anon, authenticated;
 grant execute on function public.game_claim_daily_task(uuid, text) to anon, authenticated;
+grant execute on function public.game_set_backpack_capacity(uuid, integer) to anon, authenticated;
+grant execute on function public.game_set_current_skin(uuid, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
