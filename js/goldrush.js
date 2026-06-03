@@ -284,8 +284,17 @@
             void maintainHostiles();
         }
 
+        function randomCampusNpcSpawnPoint() {
+            const gates = getGates();
+            for (let i = 0; i < 64; i++) {
+                const point = randomPoint();
+                if (gates.every(gate => distance(point, gate) > 260)) return point;
+            }
+            return randomPoint();
+        }
+
         function buildSharedNpcRow() {
-            const point = teachingSpawnPoint();
+            const point = randomCampusNpcSpawnPoint();
             const hp = randomInt(10, 50);
             return {
                 name: assets.npcNames[Math.floor(Math.random() * assets.npcNames.length)],
@@ -615,18 +624,7 @@
         }
 
         function npcSpawnPoint() {
-            const px = player.state.x;
-            const py = player.state.y;
-            for (let i = 0; i < 48; i++) {
-                const point = {
-                    x: randomBetween(px - 480, px + 480),
-                    y: randomBetween(py - 480, py + 480),
-                };
-                point.x = Math.max(bounds.minX + 40, Math.min(bounds.maxX - 40, point.x));
-                point.y = Math.max(bounds.minY + 40, Math.min(bounds.maxY - 40, point.y));
-                if (distance(point, { x: px, y: py }) > 100) return point;
-            }
-            return teachingSpawnPoint();
+            return randomCampusNpcSpawnPoint();
         }
 
         function getAliveHostileCount() {
