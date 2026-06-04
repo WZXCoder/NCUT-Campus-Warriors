@@ -429,6 +429,7 @@
 
         async function enterVisitMode() {
             appState.currentRun = null;
+            appState.remotePlayers = [];
             store.markDailyTask('visit');
             store.recordVisitAchievement();
             hudMode.textContent = '参观模式';
@@ -444,40 +445,54 @@
             const displayName = store.getDisplayName(appState.profile);
             if (!user?.id) {
                 hudOnline.textContent = '在线：未登录';
+                hudOnlineList.classList.add('hidden');
                 ui.toast('已进入参观模式（未登录，无法多人）');
                 return;
             }
 
-            if (realtime?.isEnabled?.()) {
-                try {
-                    const result = await realtime.joinVisit(
-                        {
-                            id: user.id,
-                            avatarColor: assets.getSkinFallbackColor(appState.profile?.currentSkinItemId),
-                            currentSkinItemId: appState.profile?.currentSkinItemId || null,
-                        },
-                        displayName,
-                        () => ({ x: player.state.x, y: player.state.y }),
-                        {
-                            onPresenceChange: remotes => {
-                                appState.remotePlayers = remotes;
-                                updateOnlineListHUD('visit', remotes);
-                            },
-                        },
-                    );
-                    if (!result?.ok) {
-                        ui.toast(`多人同步失败：${result.reason || realtime.getLastError?.() || '未知错误'}`);
-                    } else {
-                        updateOnlineListHUD('visit', appState.remotePlayers);
-                    }
-                } catch (error) {
-                    console.error(error);
-                    ui.toast(`多人同步失败：${error.message}（请确认已执行 player_presence 表 SQL）`);
-                }
-            } else {
+            if (!realtime?.isEnabled?.()) {
                 hudOnline.textContent = `在线：${displayName}（单机）`;
+                hudOnlineList.classList.add('hidden');
+                ui.toast('已进入参观模式（未配置 Supabase，无法多人）');
+                return;
             }
-            ui.toast('已进入参观模式，可自由浏览校园');
+
+            try {
+                const result = await realtime.joinVisit(
+                    {
+                        id: user.id,
+                        avatarColor: assets.getSkinFallbackColor(appState.profile?.currentSkinItemId),
+                        currentSkinItemId: appState.profile?.currentSkinItemId || null,
+                    },
+                    displayName,
+                    () => ({ x: player.state.x, y: player.state.y }),
+                    {
+                        onPresenceChange: remotes => {
+                            appState.remotePlayers = remotes;
+                            remotes.forEach(remote => assets.getSkinImageForItemId?.(remote.skinItemId));
+                            updateOnlineListHUD('visit', remotes);
+                        },
+                    },
+                );
+                if (!result?.ok) {
+                    ui.toast(`多人同步失败：${result.reason || realtime.getLastError?.() || '未知错误'}`);
+                    hudOnline.textContent = `在线：${displayName}（同步失败）`;
+                    hudOnlineList.classList.add('hidden');
+                    return;
+                }
+                const onlineCount = 1 + (appState.remotePlayers?.length || 0);
+                updateOnlineListHUD('visit', appState.remotePlayers);
+                if (onlineCount > 1) {
+                    ui.toast(`已进入参观模式，当前 ${onlineCount} 人在线，可互相看见`);
+                } else {
+                    ui.toast('已进入参观模式，等待其他访客加入…');
+                }
+            } catch (error) {
+                console.error(error);
+                ui.toast(`多人同步失败：${error.message}（请确认已执行 player_presence 表 SQL）`);
+                hudOnline.textContent = `在线：${displayName}（同步失败）`;
+                hudOnlineList.classList.add('hidden');
+            }
         }
 
         function enterGoldRushMode() {

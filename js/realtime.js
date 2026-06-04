@@ -7,7 +7,8 @@
     const GOLD_RUSH_BROADCAST_MS = 200;
     const GOLD_RUSH_DB_HEARTBEAT_MS = 3000;
     const VISIT_BROADCAST_MS = 250;
-    const VISIT_DB_HEARTBEAT_MS = 10000;
+    const VISIT_DB_HEARTBEAT_MS = 2000;
+    const VISIT_POLL_INTERVAL_MS = 1000;
     const VISIT_BROADCAST_CHANNEL = 'visit-broadcast:global';
     const PRESENCE_REFRESH_DEBOUNCE_MS = 250;
     const PRESENCE_STALE_SWEEP_MS = 3000;
@@ -402,17 +403,26 @@
         if (!options.skipDbSubscribe) {
             await subscribeDbChanges(mode, roomId);
         }
+        let broadcastOk = true;
         if (sessionHandlers.events?.length) {
-            await subscribeBroadcast(mode, roomId, sessionHandlers);
+            broadcastOk = await subscribeBroadcast(mode, roomId, sessionHandlers);
+            if (presenceBroadcastMode && !broadcastOk) {
+                console.warn('[realtime] Broadcast 订阅失败，已启用 DB 轮询同步位置');
+            }
         }
 
-        startTracking(mode, roomId, user.id, options);
+        const trackingOptions = {
+            ...options,
+            skipPolling: options.skipPolling === false ? false : (broadcastOk && options.skipPolling !== false),
+        };
+        startTracking(mode, roomId, user.id, trackingOptions);
         if (options.initialPresenceRefresh !== false) {
             await refreshPresenceFromDb(mode, roomId);
         }
         notifyPresenceChange();
 
-        return { ok: true, mode, roomId, via: presenceBroadcastMode ? 'broadcast' : 'database' };
+        const via = broadcastOk && presenceBroadcastMode ? 'broadcast+db' : 'database';
+        return { ok: true, mode, roomId, via, broadcastOk };
     }
 
     async function joinVisit(user, displayName, getPosition, handlers) {
@@ -438,8 +448,9 @@
                 presenceViaBroadcast: true,
                 trackInterval: VISIT_BROADCAST_MS,
                 dbHeartbeatMs: VISIT_DB_HEARTBEAT_MS,
-                skipPolling: true,
-                skipDbSubscribe: true,
+                pollIntervalMs: VISIT_POLL_INTERVAL_MS,
+                skipPolling: false,
+                skipDbSubscribe: false,
                 initialPresenceRefresh: true,
             },
         );
